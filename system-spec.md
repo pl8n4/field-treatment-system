@@ -40,16 +40,16 @@ Agronomist (free text)
 ## Data & knowledge
 
 ### 1. Label corpus
-The five product labels, cleaned from PDF into markdown/text and split into chunks. Each chunk carries metadata: product, EPA registration number, section (rates / weather / PHI / mixing), crop, RUP flag, label version. **The metadata has to be right at ingest time** — it's what makes filtered retrieval possible later, and you can't add it retroactively without re-ingesting.
+The five official label PDFs, stored and split into chunks Each chunk carries that metadata, attached at ingest time.
 
 ### 2. Vector store
 Chroma, holding the embedded chunks. Built once from the corpus, either persisted to disk or rebuilt at startup.
 
 ### 3. Retriever
-Semantic search over the store. The important part is the metadata filter: when checking a temperature restriction you search *one product's weather section*, not all five labels. Returns chunks with their source attached, since everything downstream has to cite.
+Semantic search over the store. The important part is the metadata filter: when checking a temperature restriction you search *one product's label*, not all five. Returns chunks with their source attached, since everything downstream has to cite.
 
 ### 4. Farm records
-Three JSON files loaded at startup: fields.json (~10 fields — trait package, growth stage, planting date, lat/lon, distance to nearest sensitive site), applicators.json (license number and expiry per applicator), applications.json (spray history — what went on which field, when, at what rate). Everything reads through a thin accessor layer returning Pydantic objects, so the storage choice stays reversible.
+Three JSON files loaded at startup: fields.json (~10 fields — trait package, growth stage, expected harvest date, lat/lon, distance to nearest sensitive site), applications.json (spray history — what went on which field, when, at what rate), products.json (each label's limits as structured numbers, for the rule engine). Everything reads through a thin accessor layer returning Pydantic objects.
 
 ### 5. Weather client
 Wraps Open-Meteo. Given a lat/lon and target date, returns forecast high, wind speed and direction, and precipitation probability. Label rules are written directly against forecast values, so its output becomes part of the compliance record.
@@ -73,7 +73,7 @@ Manufacturer sites and agronomy label databases (CDMS, Agrian) carry the same la
 ## Tools layer
 
 ### 6. Read-only tools
-Field lookup, applicator lookup, application history, weather. Thin typed wrappers over the farm DB and weather client. Some are called unconditionally by the graph rather than chosen by the model.
+Field lookup, product lookup, application history, weather. Thin typed wrappers over the farm DB and weather client. Some are called unconditionally by the graph rather than chosen by the model.
 
 ### 7. Side-effect tool
 Writes a work order row. The only thing in the system that "does" anything, which is exactly why it sits behind human approval. The UI has to state plainly that it's simulated.
@@ -92,7 +92,7 @@ LLM with structured output. Free text — *"Hartley North has waterhemp, let's g
 LLM. Takes the retrieved label chunks plus field, weather, and history context, and drafts a treatment plan: rate, timing, tank mix, nozzle, buffer, computed REI/PHI dates. Every element traces back to a chunk.
 
 ### 11. Rule engine
-Plain Python, no LLM. Rate vs. label max, cumulative seasonal rate, trait compatibility, growth stage window, PHI vs. harvest date, license validity, wind range, temperature threshold, buffer distance.
+Plain Python, no LLM. Rate vs. label max, cumulative seasonal rate, trait compatibility, growth stage window, PHI vs. harvest date, wind range, temperature threshold, buffer distance.
 
 ### 12. Critic
 Runs the rule engine, then uses the LLM to explain any failures in plain language with citations, and emits a verdict: **clean / fixable / insufficient info / hard violation**. The verdict is what the graph routes on.
