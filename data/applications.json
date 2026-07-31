@@ -1,0 +1,72 @@
+[
+  {
+    "id": "A-01",
+    "field_id": "F-01",
+    "product": "Roundup PowerMax 3",
+    "applied_on": "2026-07-02",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-02",
+    "field_id": "F-03",
+    "product": "Roundup PowerMax 3",
+    "applied_on": "2026-05-28",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-03",
+    "field_id": "F-03",
+    "product": "Roundup PowerMax 3",
+    "applied_on": "2026-06-25",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-04",
+    "field_id": "F-08",
+    "product": "Delaro Complete",
+    "applied_on": "2026-06-05",
+    "rate_fl_oz_per_acre": 8.0
+  },
+  {
+    "id": "A-05",
+    "field_id": "F-08",
+    "product": "Roundup PowerMax 3",
+    "applied_on": "2026-06-05",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-06",
+    "field_id": "F-05",
+    "product": "Delaro Complete",
+    "applied_on": "2026-07-15",
+    "rate_fl_oz_per_acre": 8.0
+  },
+  {
+    "id": "A-07",
+    "field_id": "F-10",
+    "product": "Enlist One",
+    "applied_on": "2026-06-10",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-08",
+    "field_id": "F-02",
+    "product": "Liberty ULTRA",
+    "applied_on": "2026-07-20",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-09",
+    "field_id": "F-07",
+    "product": "Enlist One",
+    "applied_on": "2026-07-18",
+    "rate_fl_oz_per_acre": 32.0
+  },
+  {
+    "id": "A-10",
+    "field_id": "F-06",
+    "product": "Liberty ULTRA",
+    "applied_on": "2026-07-05",
+    "rate_fl_oz_per_acre": 32.0
+  }
+]

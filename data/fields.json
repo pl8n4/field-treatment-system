@@ -1,0 +1,112 @@
+[
+  {
+    "id": "F-01",
+    "name": "Hartley North",
+    "crop": "soybean",
+    "trait_package": "xtendflex",
+    "growth_stage": "V4",
+    "expected_harvest_date": "2026-10-20",
+    "latitude": 39.2451,
+    "longitude": -92.3086,
+    "feet_to_sensitive_site": 1450
+  },
+  {
+    "id": "F-02",
+    "name": "Hartley South",
+    "crop": "soybean",
+    "trait_package": "enlist_e3",
+    "growth_stage": "V3",
+    "expected_harvest_date": "2026-10-22",
+    "latitude": 39.2389,
+    "longitude": -92.3012,
+    "feet_to_sensitive_site": 980
+  },
+  {
+    "id": "F-03",
+    "name": "Kessler Bottoms",
+    "crop": "soybean",
+    "trait_package": "roundup_ready_2_xtend",
+    "growth_stage": "R4",
+    "expected_harvest_date": "2026-09-30",
+    "latitude": 39.1874,
+    "longitude": -92.2765,
+    "feet_to_sensitive_site": 165
+  },
+  {
+    "id": "F-04",
+    "name": "Miller 40",
+    "crop": "soybean",
+    "trait_package": "libertylink",
+    "growth_stage": "V3",
+    "expected_harvest_date": "2026-10-25",
+    "latitude": 39.2612,
+    "longitude": -92.3401,
+    "feet_to_sensitive_site": 2300
+  },
+  {
+    "id": "F-05",
+    "name": "Vance Creek",
+    "crop": "soybean",
+    "trait_package": "conventional",
+    "growth_stage": "R3",
+    "expected_harvest_date": "2026-10-05",
+    "latitude": 39.2033,
+    "longitude": -92.3550,
+    "feet_to_sensitive_site": 1210
+  },
+  {
+    "id": "F-06",
+    "name": "Doyle East",
+    "crop": "soybean",
+    "trait_package": "xtendflex",
+    "growth_stage": "R1",
+    "expected_harvest_date": "2026-10-18",
+    "latitude": 39.2755,
+    "longitude": -92.2489,
+    "feet_to_sensitive_site": 640
+  },
+  {
+    "id": "F-07",
+    "name": "Doyle West",
+    "crop": "soybean",
+    "trait_package": "enlist_e3",
+    "growth_stage": "V5",
+    "expected_harvest_date": "2026-10-19",
+    "latitude": 39.2781,
+    "longitude": -92.2601,
+    "feet_to_sensitive_site": 1120
+  },
+  {
+    "id": "F-08",
+    "name": "Prairie Ridge",
+    "crop": "soybean",
+    "trait_package": "roundup_ready_2_xtend",
+    "growth_stage": "R5",
+    "expected_harvest_date": "2026-09-24",
+    "latitude": 39.1520,
+    "longitude": -92.4102,
+    "feet_to_sensitive_site": 3050
+  },
+  {
+    "id": "F-09",
+    "name": "Schaeffer 80",
+    "crop": "soybean",
+    "trait_package": "xtendflex",
+    "growth_stage": "V3",
+    "expected_harvest_date": "2026-10-24",
+    "latitude": 39.2210,
+    "longitude": -92.2903,
+    "feet_to_sensitive_site": 310
+  },
+  {
+    "id": "F-10",
+    "name": "Lindell Flats",
+    "crop": "soybean",
+    "trait_package": "enlist_e3",
+    "growth_stage": "R4",
+    "expected_harvest_date": "2026-09-15",
+    "latitude": 39.1698,
+    "longitude": -92.3318,
+    "feet_to_sensitive_site": 820
+  }
+]
