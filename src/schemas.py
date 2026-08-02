@@ -2,6 +2,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from datetime import date
 
+# INTAKE
+
 class TreatmentRequest(BaseModel):
     """
     Structured agricultural field-treatment request.
@@ -9,7 +11,7 @@ class TreatmentRequest(BaseModel):
 
     field_id: str | None = Field(
         default=None,
-        description="Unique identifier for the agriculural field",
+        description="Unique field identifier",
     )
 
     crop: str | None = Field(
@@ -19,22 +21,18 @@ class TreatmentRequest(BaseModel):
 
     observed_issue: str | None = Field(
         default=None,
-        description=(
-            "Observed disease, insect, weed, nutrient, "
-            "or other field issue"
-        ),
+        description="Observed pest, disease, weed, or nutrient issue",
     )
 
     proposed_product: str | None = Field(
         default=None,
-        description="Product proposed for the field treatment",
+        description="Product proposed for treatment",
     )
 
     proposed_date: str | None = Field(
         default=None,
         description=(
-            "Requested treatment date as an ISO date in "
-            "YYYY-MM-DD format"
+            "Requested treatment date as an ISO date in YYYY-MM-DD format"
         )
     )
 
@@ -43,9 +41,14 @@ class TreatmentRequest(BaseModel):
         description="Number of acres to be treated",
     )
 
-class TriageDecision(BaseModel):
+    requested_rate: float | None = Field(
+        default=None,
+        description="Requested application rate, when provided",
+    )
+
+class IntakeDecision(BaseModel):
     """
-    Structured result produced by the triage agent.
+    Structured result produced by the intake parser.
     """
 
     request: TreatmentRequest
@@ -60,20 +63,138 @@ class TriageDecision(BaseModel):
 
     next_step: Literal[
         "clarify",
-        "retrieve",
+        "gather_context",
     ]
 
-    missing_information: list[str] = Field(
-        default_factory=list,
-        description="Required information missing from the request",
+    user_required_information: list[str] = Field(
+        default_factory=list
     )
 
-    routing_reason: str = Field(
-        description=(
-            "One short business explanation for the selected route."
-            "Do not provide hidden chain-of-thought reasoning."
-        )
+    system_fillable_information: list[str] = Field(
+        default_factory=list
     )
+
+    routing_reason: str 
+
+# FARM AND WEATHER DATA
+
+class FieldRecord(BaseModel):
+    field_id: str
+    crop: str
+    acres: float 
+    trait_package: str
+    growth_stage: str
+    expected_harvest_date: date
+
+    latitude: float
+    longitude: float
+    sensitive_site_distance_feet: float
+
+class ProductRecord(BaseModel):
+    product_name: str
+    supported_crops: list[str]
+    compatible_traits: list[str]
+    allowed_growth_stages: list[str]
+
+    minimum_rate: float
+    maximum_rate: float
+    seasonal_maximum_rate: float
+
+    maximum_wind_mph: float
+    maximum_temperature_f: float
+    required_buffer_feet: float
+
+    # Restricted Entry Interval
+    rei_hours: int
+    # Pre Harvest Interval
+    phi_days: int
+
+class ApplicationRecord(BaseModel):
+    field_id: str
+    product_name: str
+    application_date: date
+    rate: float
+
+class WeatherForecast(BaseModel):
+    forecast_date: date
+
+    high_temperature_f: float
+    wind_speed_mph: float
+    wind_direction: str
+    precipitation_probability: float
+
+    source: str
+    cached: bool = False
+
+# RETRIEVAL
+
+class EvidenceChunk(BaseModel):
+    content: str
+    source: str
+
+    page: int | None = None
+    product_name: str | None = None
+    registration_number: str | None = None
+
+# SPECIALIST
+
+class TreatmentPlan(BaseModel):
+    field_id: str
+    product_name: str
+    treatment_date: date
+    proposed_rate: float
+    treated_acres: float
+
+    timing_summary: str
+    buffer_summary: str
+    rei_summary: str
+    phi_summary: str
+
+    citations: list[str]
+    assumptions: list[str] = Field(default_factory=list)
+
+    human_review_required: bool = True
+
+# RULE ENGINE AND CRITIC
+
+class RuleCheck(BaseModel):
+    rule_name: str
+    passed: bool
+    
+    severity: Literal[
+        "informational",
+        "fixable",
+        "hard_violation",
+    ]
+
+    explanation: str
+
+class RuleEngineResult(BaseModel):
+    checks: list[RuleCheck]
+    all_passed: bool
+
+class CriticDecision(BaseModel):
+    verdict: Literal[
+        "clean",
+        "fixable",
+        "insufficient_info",
+        "hard_violation",
+    ]
+
+    explanation: str
+
+    issues: list[str] = Field(default_factory=list)
+    revision_instructions: list[str] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+
+# HUMAN REVIEW AND MOCKED SIDE EFFECT
+
+class WorkOrderResult(BaseModel):
+    work_order_id: str
+    status: Literal["simulated"]
+    message: str
+
+# APPLICATION RESPONSE
 
 class WorkflowResponse(BaseModel):
     """
@@ -83,15 +204,9 @@ class WorkflowResponse(BaseModel):
     thread_id: str
     question: str
     request: TreatmentRequest | None
-    triage: TriageDecision | None
+    plan: TreatmentPlan | None = None
+    review: CriticDecision | None = None
+    work_order: WorkOrderResult | None = None
 
-    final_status: Literal[
-        "ready_for_retrieval",
-        "needs_information",
-        "failed",
-    ]
-
-    final_message: str
-    audit_log: list[str]
-    turn_number: int
-    conversation_message_count: int
+    revision_count: int = 0
+    audit_log: list[str] = Field(default_factory=list)
