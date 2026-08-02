@@ -38,23 +38,15 @@ def main() -> None:
             print("\nPLAN READY FOR HUMAN REVIEW")
 
             if state.get("plan"):
-                print(
-                    state["plan"].model_dump_json(
-                        indent=2
-                    )
-                )
+                print(state["plan"].model_dump_json(indent=2))
 
             if state.get("review"):
-                print(
-                    state["review"].model_dump_json(
-                        indent=2
-                    )
-                )
+                print(state["review"].model_dump_json(indent=2))
 
             while True:
-                decision = input(
-                    "\nApprove simulated work order? (yes/no): "
-                ).strip().lower()
+                decision = (
+                    input("\nApprove simulated work order? (yes/no): ").strip().lower()
+                )
 
                 if decision in {
                     "yes",
@@ -65,11 +57,7 @@ def main() -> None:
                 print("Please enter 'yes' or 'no'.")
 
             state = workflow.resume_human_review(
-                decision=(
-                    "approved"
-                    if decision == "yes"
-                    else "rejected"
-                ),
+                decision=("approved" if decision == "yes" else "rejected"),
                 thread_id=thread_id,
             )
 
@@ -97,29 +85,17 @@ def main() -> None:
         if state.get("plan"):
             print("\nPLAN")
 
-            print(
-                state["plan"].model_dump_json(
-                    indent=2
-                )
-            )
+            print(state["plan"].model_dump_json(indent=2))
 
         if state.get("review"):
             print("\nREVIEW")
 
-            print(
-                state["review"].model_dump_json(
-                    indent=2
-                )
-            )
+            print(state["review"].model_dump_json(indent=2))
 
         if state.get("work_order"):
             print("\nWORK ORDER")
 
-            print(
-                state["work_order"].model_dump_json(
-                    indent=2
-                )
-            )
+            print(state["work_order"].model_dump_json(indent=2))
 
         print_trace(state)
 

@@ -1,8 +1,10 @@
-from typing import Literal
-from pydantic import BaseModel, Field
 from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 # INTAKE
+
 
 class TreatmentRequest(BaseModel):
     """
@@ -31,9 +33,7 @@ class TreatmentRequest(BaseModel):
 
     proposed_date: str | None = Field(
         default=None,
-        description=(
-            "Requested treatment date as an ISO date in YYYY-MM-DD format"
-        )
+        description=("Requested treatment date as an ISO date in YYYY-MM-DD format"),
     )
 
     acres: float | None = Field(
@@ -46,6 +46,7 @@ class TreatmentRequest(BaseModel):
         description="Requested application rate, when provided",
     )
 
+
 class IntakeDecision(BaseModel):
     """
     Structured result produced by the intake parser.
@@ -53,35 +54,27 @@ class IntakeDecision(BaseModel):
 
     request: TreatmentRequest
 
-    issue_type: Literal[
-        "disease",
-        "insect",
-        "weed",
-        "nutrient",
-        "unknown"
-    ]
+    issue_type: Literal["disease", "insect", "weed", "nutrient", "unknown"]
 
     next_step: Literal[
         "clarify",
         "gather_context",
     ]
 
-    user_required_information: list[str] = Field(
-        default_factory=list
-    )
+    user_required_information: list[str] = Field(default_factory=list)
 
-    system_fillable_information: list[str] = Field(
-        default_factory=list
-    )
+    system_fillable_information: list[str] = Field(default_factory=list)
 
-    routing_reason: str 
+    routing_reason: str
+
 
 # FARM AND WEATHER DATA
+
 
 class FieldRecord(BaseModel):
     field_id: str
     crop: str
-    acres: float 
+    acres: float
     trait_package: str
     growth_stage: str
     expected_harvest_date: date
@@ -89,6 +82,7 @@ class FieldRecord(BaseModel):
     latitude: float
     longitude: float
     sensitive_site_distance_feet: float
+
 
 class ProductRecord(BaseModel):
     product_name: str
@@ -109,11 +103,13 @@ class ProductRecord(BaseModel):
     # Pre Harvest Interval
     phi_days: int
 
+
 class ApplicationRecord(BaseModel):
     field_id: str
     product_name: str
     application_date: date
     rate: float
+
 
 class WeatherForecast(BaseModel):
     forecast_date: date
@@ -126,7 +122,9 @@ class WeatherForecast(BaseModel):
     source: str
     cached: bool = False
 
+
 # RETRIEVAL
+
 
 class EvidenceChunk(BaseModel):
     content: str
@@ -136,7 +134,9 @@ class EvidenceChunk(BaseModel):
     product_name: str | None = None
     registration_number: str | None = None
 
+
 # SPECIALIST
+
 
 class TreatmentPlan(BaseModel):
     field_id: str
@@ -155,12 +155,14 @@ class TreatmentPlan(BaseModel):
 
     human_review_required: bool = True
 
+
 # RULE ENGINE AND CRITIC
+
 
 class RuleCheck(BaseModel):
     rule_name: str
     passed: bool
-    
+
     severity: Literal[
         "informational",
         "fixable",
@@ -169,9 +171,11 @@ class RuleCheck(BaseModel):
 
     explanation: str
 
+
 class RuleEngineResult(BaseModel):
     checks: list[RuleCheck]
     all_passed: bool
+
 
 class CriticDecision(BaseModel):
     verdict: Literal[
@@ -187,14 +191,18 @@ class CriticDecision(BaseModel):
     revision_instructions: list[str] = Field(default_factory=list)
     citations: list[str] = Field(default_factory=list)
 
+
 # HUMAN REVIEW AND MOCKED SIDE EFFECT
+
 
 class WorkOrderResult(BaseModel):
     work_order_id: str
     status: Literal["simulated"]
     message: str
 
+
 # APPLICATION RESPONSE
+
 
 class WorkflowResponse(BaseModel):
     """
