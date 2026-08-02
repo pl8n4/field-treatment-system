@@ -14,12 +14,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import InMemorySaver
+
 # Import to resolve a langgraph serialization issue
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph, add_messages
 from langgraph.types import Command, interrupt
-
 
 from config import (
     GEMINI_MODEL,
@@ -29,7 +29,6 @@ from config import (
     OLLAMA_MODEL,
     validate_settings,
 )
-
 from schemas import (
     ApplicationRecord,
     CriticDecision,
@@ -48,8 +47,7 @@ from schemas import (
 MAX_REVISIONS = 1
 MAX_CONVERSATION_MESSAGES = 12
 
-INTAKE_PROMPT = ChatPromptTemplate.from_template(
-    """
+INTAKE_PROMPT = ChatPromptTemplate.from_template("""
 You are the intake parser for an agricultural field-treatment
 review workflow.
 
@@ -95,11 +93,9 @@ CURRENT DATE:
 CONVERSATION:
 
 {conversation}
-    """.strip()
-)
+    """.strip())
 
-SPECIALIST_PROMPT = ChatPromptTemplate.from_template(
-    """
+SPECIALIST_PROMPT = ChatPromptTemplate.from_template("""
 You are the agricultural treatment-plan specialist.
 
 Draft a proposed treatment plan using only the supplied request,
@@ -138,11 +134,9 @@ LABEL EVIDENCE:
 
 PREVIOUS REVIEW:
 {previous_review}
-    """.strip()
-)
+    """.strip())
 
-CRITIC_PROMPT = ChatPromptTemplate.from_template(
-    """
+CRITIC_PROMPT = ChatPromptTemplate.from_template("""
 You are the compliance critic for an agricultural field-treatment
 review workflow.
 
@@ -180,8 +174,8 @@ RULE CHECKS:
 
 EVIDENCE:
 {evidence}
-    """.strip()
-)
+    """.strip())
+
 
 class AgriculturalState(TypedDict, total=False):
     """Shared data that moves through the LangGraph workflow."""
@@ -226,6 +220,7 @@ class AgriculturalState(TypedDict, total=False):
 
     # Conversation tracking
     turn_number: int
+
 
 class AgriculturalWorkflow:
     """
@@ -292,11 +287,7 @@ class AgriculturalWorkflow:
             max_retries=2,
         )
 
-    def _build_structured_chain(
-        self,
-        prompt,
-        schema
-    ):
+    def _build_structured_chain(self, prompt, schema):
         structured_model = self.llm.with_structured_output(
             schema,
             method="json_schema",
@@ -415,7 +406,6 @@ class AgriculturalWorkflow:
             checkpointer=self.checkpointer,
         )
 
-
     @staticmethod
     def _content_to_text(content) -> str:
         """
@@ -424,7 +414,7 @@ class AgriculturalWorkflow:
 
         if isinstance(content, str):
             return content
-        
+
         if isinstance(content, list):
             text_parts: list[str] = []
 
@@ -433,11 +423,11 @@ class AgriculturalWorkflow:
                     text_parts.append(str(block["text"]))
                 else:
                     text_parts.append(str(block))
-            
+
             return " ".join(text_parts)
-        
+
         return str(content)
-    
+
     def _format_conversation(
         self,
         state: AgriculturalState,
@@ -458,7 +448,7 @@ class AgriculturalWorkflow:
                 role = "User"
             else:
                 role = "Assistant"
-            
+
             content = self._content_to_text(message.content)
             lines.append(f"{role}: {content}")
 
@@ -476,10 +466,8 @@ class AgriculturalWorkflow:
             question = state["question"].strip()
 
             if not question:
-                raise ValueError(
-                    "The request cannot be empty"
-                )
-            
+                raise ValueError("The request cannot be empty")
+
             intake = self.intake_chain.invoke(
                 {
                     "current_date": date.today().isoformat(),
@@ -499,20 +487,10 @@ class AgriculturalWorkflow:
             missing_information = [
                 field_name
                 for field_name, value in required_fields.items()
-                if (
-                    value is None
-                    or (
-                        isinstance(value, str)
-                        and not value.strip()
-                    )
-                )
+                if (value is None or (isinstance(value, str) and not value.strip()))
             ]
 
-            selected_route = (
-                "clarify"
-                if missing_information
-                else "gather_context"
-            )
+            selected_route = "clarify" if missing_information else "gather_context"
 
             if missing_information:
                 routing_explanation = (
@@ -526,7 +504,6 @@ class AgriculturalWorkflow:
                     "Crop, acres, and requested rate may be loaded "
                     "from system records or product evidence."
                 )
-
 
             return {
                 "question": question,
@@ -543,15 +520,13 @@ class AgriculturalWorkflow:
                     )
                 ],
             }
-        
+
         except Exception as exc:
             return {
                 "error": f"Intake failed: {exc}",
-                "audit_log": [
-                    "Intake failed."
-                ],
+                "audit_log": ["Intake failed."],
             }
-        
+
     @staticmethod
     def _clarify_node(
         state: AgriculturalState,
@@ -568,15 +543,10 @@ class AgriculturalWorkflow:
         if not missing and state.get("review"):
             missing = state["review"].issues
 
-        missing = list(
-            dict.fromkeys(missing)
-        )
+        missing = list(dict.fromkeys(missing))
 
-        message = (
-            "Additional information is required: "
-            + ", ".join(
-                missing or ["unspecified information"]
-            )
+        message = "Additional information is required: " + ", ".join(
+            missing or ["unspecified information"]
         )
 
         return {
@@ -585,12 +555,10 @@ class AgriculturalWorkflow:
             "messages": [
                 AIMessage(content=message),
             ],
-            "audit_log": [
-                "Workflow paused for user information."
-            ],
+            "audit_log": ["Workflow paused for user information."],
         }
 
-    #TODO: Replace mock integration with real integration
+    # TODO: Replace mock integration with real integration
     @staticmethod
     def _gather_context_node(
         state: AgriculturalState,
@@ -608,25 +576,26 @@ class AgriculturalWorkflow:
         try:
             request = state["request"]
 
+            proposed_date = (
+                date.fromisoformat(request.proposed_date)
+                if request.proposed_date
+                else date.today()
+            )
+
             field = FieldRecord(
                 field_id=request.field_id or "UNKNOWN",
                 crop=request.crop or "soybeans",
                 acres=request.acres or 80,
                 trait_package="Example Trait",
                 growth_stage="R2",
-                expected_harvest_date=(
-                    date.today() + timedelta(days=60)
-                ),
+                expected_harvest_date=(date.today() + timedelta(days=60)),
                 latitude=41.6,
-                longitude= -93.6,
+                longitude=-93.6,
                 sensitive_site_distance_feet=300,
             )
 
             product = ProductRecord(
-                product_name=(
-                    request.proposed_product
-                    or "Example Product"
-                ),
+                product_name=(request.proposed_product or "Example Product"),
                 supported_crops=[
                     "soybeans",
                 ],
@@ -652,17 +621,13 @@ class AgriculturalWorkflow:
                 ApplicationRecord(
                     field_id=field.field_id,
                     product_name=product.product_name,
-                    application_date=(
-                        date.today() - timedelta(days=30)
-                    ),
-                    rate=10
+                    application_date=(date.today() - timedelta(days=30)),
+                    rate=10,
                 )
             ]
 
             weather = WeatherForecast(
-                forecast_date=(
-                    request.proposed_date or date.today()
-                ),
+                forecast_date=proposed_date,
                 high_temperature_f=82,
                 wind_speed_mph=8,
                 wind_direction="NW",
@@ -678,18 +643,14 @@ class AgriculturalWorkflow:
                 "weather": weather,
                 "error": None,
                 "audit_log": [
-                    (
-                        "Mock field, product, application-history, and weather context loaded."
-                    )
+                    "Mock field, product, application-history, and weather context loaded."
                 ],
             }
-        
+
         except Exception as exc:
             return {
                 "error": f"Context gathering failed: {exc}",
-                "audit_log": [
-                    "Context gathering failed."
-                ],
+                "audit_log": ["Context gathering failed."],
             }
 
     def _retrieve_node(
@@ -722,73 +683,52 @@ class AgriculturalWorkflow:
                     source="mock_product_label.pdf",
                     page=7,
                     product_name=product.product_name,
-                    registration_number="00000-000"
+                    registration_number="00000-000",
                 ),
             ]
 
-            sources = sorted(
-                {
-                    chunk.source
-                    for chunk in evidence
-                }
-            )
+            sources = sorted({chunk.source for chunk in evidence})
 
             return {
                 "evidence": evidence,
                 "context_sources": sources,
                 "missing_information": (
-                    []
-                    if evidence
-                    else ["Applicable product-label evidence"]
+                    [] if evidence else ["Applicable product-label evidence"]
                 ),
                 "error": None,
                 "audit_log": [
-                    (
-                        f"Mock retrieval return {len(evidence)} chunks from {len(sources)} sources."
-                    )
+                    f"Mock retrieval return {len(evidence)} chunks from {len(sources)} sources."
                 ],
             }
-        
+
         except Exception as exc:
             return {
                 "error": f"Retrieval failed: {exc}",
-                "audit_log": [
-                    "Retrieval failed."
-                ],
+                "audit_log": ["Retrieval failed."],
             }
-    
+
     def _specialist_node(
         self,
         state: AgriculturalState,
     ) -> dict:
-        try: 
+        try:
             previous_review = state.get("review")
 
             history_text = "\n".join(
-                record.model_dump_json()
-                for record in state["application_history"]
+                record.model_dump_json() for record in state["application_history"]
             )
 
             evidence_text = "\n\n".join(
-                chunk.model_dump_json()
-                for chunk in state["evidence"]
+                chunk.model_dump_json() for chunk in state["evidence"]
             )
 
             plan = self.specialist_chain.invoke(
                 {
-                    "request": state[
-                        "request"
-                    ].model_dump_json(indent=2),
-                    "field": state[
-                        "field_record"
-                    ].model_dump_json(indent=2),
-                    "product": state[
-                        "product_record"
-                    ].model_dump_json(indent=2),
+                    "request": state["request"].model_dump_json(indent=2),
+                    "field": state["field_record"].model_dump_json(indent=2),
+                    "product": state["product_record"].model_dump_json(indent=2),
                     "history": history_text,
-                    "weather": state[
-                        "weather"
-                    ].model_dump_json(indent=2),
+                    "weather": state["weather"].model_dump_json(indent=2),
                     "evidence": evidence_text,
                     "previous_review": (
                         previous_review.model_dump_json(indent=2)
@@ -808,13 +748,11 @@ class AgriculturalWorkflow:
                     )
                 ],
             }
-        
+
         except Exception as exc:
             return {
                 "error": f"Specialist failed: {exc}",
-                "audit_log": [
-                    "Specialist failed."
-                ],
+                "audit_log": ["Specialist failed."],
             }
 
     @staticmethod
@@ -836,24 +774,15 @@ class AgriculturalWorkflow:
             prior_product_rate = sum(
                 record.rate
                 for record in state["application_history"]
-                if (
-                    record.product_name.lower()
-                    == product.product_name.lower()
-                )
+                if (record.product_name.lower() == product.product_name.lower())
             )
 
-            phi_deadline = (
-                plan.treatment_date
-                + timedelta(days=product.phi_days)
-            )
+            phi_deadline = plan.treatment_date + timedelta(days=product.phi_days)
 
             checks = [
                 RuleCheck(
                     rule_name="maximum_rate",
-                    passed=(
-                        plan.proposed_rate
-                        <= product.maximum_rate
-                    ),
+                    passed=(plan.proposed_rate <= product.maximum_rate),
                     severity="fixable",
                     explanation=(
                         f"Plan rate is {plan.proposed_rate}; "
@@ -875,9 +804,7 @@ class AgriculturalWorkflow:
                 ),
                 RuleCheck(
                     rule_name="crop_compatibility",
-                    passed=(
-                        field.crop in product.supported_crops
-                    ),
+                    passed=(field.crop in product.supported_crops),
                     severity="hard_violation",
                     explanation=(
                         f"Field crop is {field.crop}; supported crops "
@@ -886,10 +813,7 @@ class AgriculturalWorkflow:
                 ),
                 RuleCheck(
                     rule_name="trait_compatibility",
-                    passed=(
-                        field.trait_package
-                        in product.compatible_traits
-                    ),
+                    passed=(field.trait_package in product.compatible_traits),
                     severity="hard_violation",
                     explanation=(
                         f"Field trait is {field.trait_package}; "
@@ -899,10 +823,7 @@ class AgriculturalWorkflow:
                 ),
                 RuleCheck(
                     rule_name="growth_stage",
-                    passed=(
-                        field.growth_stage
-                        in product.allowed_growth_stages
-                    ),
+                    passed=(field.growth_stage in product.allowed_growth_stages),
                     severity="hard_violation",
                     explanation=(
                         f"Growth stage is {field.growth_stage}; "
@@ -912,10 +833,7 @@ class AgriculturalWorkflow:
                 ),
                 RuleCheck(
                     rule_name="wind",
-                    passed=(
-                        weather.wind_speed_mph
-                        <= product.maximum_wind_mph
-                    ),
+                    passed=(weather.wind_speed_mph <= product.maximum_wind_mph),
                     severity="fixable",
                     explanation=(
                         f"Forecast wind is {weather.wind_speed_mph} mph; "
@@ -925,8 +843,7 @@ class AgriculturalWorkflow:
                 RuleCheck(
                     rule_name="temperature",
                     passed=(
-                        weather.high_temperature_f
-                        <= product.maximum_temperature_f
+                        weather.high_temperature_f <= product.maximum_temperature_f
                     ),
                     severity="fixable",
                     explanation=(
@@ -952,10 +869,7 @@ class AgriculturalWorkflow:
                 ),
                 RuleCheck(
                     rule_name="phi_before_harvest",
-                    passed=(
-                        phi_deadline
-                        <= field.expected_harvest_date
-                    ),
+                    passed=(phi_deadline <= field.expected_harvest_date),
                     severity="hard_violation",
                     explanation=(
                         f"PHI ends on {phi_deadline}; expected harvest "
@@ -966,16 +880,10 @@ class AgriculturalWorkflow:
 
             result = RuleEngineResult(
                 checks=checks,
-                all_passed=all(
-                    check.passed
-                    for check in checks
-                ),
+                all_passed=all(check.passed for check in checks),
             )
 
-            passed_count = sum(
-                check.passed
-                for check in checks
-            )
+            passed_count = sum(check.passed for check in checks)
 
             return {
                 "rule_result": result,
@@ -991,9 +899,7 @@ class AgriculturalWorkflow:
         except Exception as exc:
             return {
                 "error": f"Rule engine failed: {exc}",
-                "audit_log": [
-                    "Rule engine failed."
-                ],
+                "audit_log": ["Rule engine failed."],
             }
 
     def _critic_node(
@@ -1007,18 +913,13 @@ class AgriculturalWorkflow:
 
         try:
             evidence_text = "\n\n".join(
-                chunk.model_dump_json()
-                for chunk in state["evidence"]
+                chunk.model_dump_json() for chunk in state["evidence"]
             )
 
             model_review = self.critic_chain.invoke(
                 {
-                    "plan": state[
-                        "plan"
-                    ].model_dump_json(indent=2),
-                    "rule_checks": state[
-                        "rule_result"
-                    ].model_dump_json(indent=2),
+                    "plan": state["plan"].model_dump_json(indent=2),
+                    "rule_checks": state["rule_result"].model_dump_json(indent=2),
                     "evidence": evidence_text,
                 }
             )
@@ -1028,32 +929,22 @@ class AgriculturalWorkflow:
             failed_hard_rules = [
                 check
                 for check in rule_result.checks
-                if (
-                    not check.passed
-                    and check.severity == "hard_violation"
-                )
+                if (not check.passed and check.severity == "hard_violation")
             ]
 
             failed_fixable_rules = [
                 check
                 for check in rule_result.checks
-                if (
-                    not check.passed
-                    and check.severity == "fixable"
-                )
+                if (not check.passed and check.severity == "fixable")
             ]
 
             review = model_review
             validation_message = (
-                "Critic verdict agreed with the deterministic "
-                "rule results."
+                "Critic verdict agreed with the deterministic rule results."
             )
 
             if failed_hard_rules:
-                failed_names = [
-                    check.rule_name
-                    for check in failed_hard_rules
-                ]
+                failed_names = [check.rule_name for check in failed_hard_rules]
 
                 if model_review.verdict != "hard_violation":
                     review = CriticDecision(
@@ -1073,10 +964,7 @@ class AgriculturalWorkflow:
                     )
 
             elif failed_fixable_rules:
-                failed_names = [
-                    check.rule_name
-                    for check in failed_fixable_rules
-                ]
+                failed_names = [check.rule_name for check in failed_fixable_rules]
 
                 if model_review.verdict != "fixable":
                     review = CriticDecision(
@@ -1101,13 +989,10 @@ class AgriculturalWorkflow:
                         "deterministic rule engine found fixable failures."
                     )
 
-            elif (
-                rule_result.all_passed
-                and model_review.verdict in {
-                    "fixable",
-                    "hard_violation",
-                }
-            ):
+            elif rule_result.all_passed and model_review.verdict in {
+                "fixable",
+                "hard_violation",
+            }:
                 review = CriticDecision(
                     verdict="clean",
                     explanation=(
@@ -1130,10 +1015,7 @@ class AgriculturalWorkflow:
                 "review": review,
                 "error": None,
                 "audit_log": [
-                    (
-                        "Critic returned the "
-                        f"{model_review.verdict} verdict."
-                    ),
+                    (f"Critic returned the {model_review.verdict} verdict."),
                     validation_message,
                     (
                         "Validated critic verdict: "
@@ -1144,18 +1026,14 @@ class AgriculturalWorkflow:
             }
 
             if review.verdict == "fixable":
-                update["revision_count"] = (
-                    state.get("revision_count", 0) + 1
-                )
+                update["revision_count"] = state.get("revision_count", 0) + 1
 
             return update
 
         except Exception as exc:
             return {
                 "error": f"Critic failed: {exc}",
-                "audit_log": [
-                    "Critic failed."
-                ],
+                "audit_log": ["Critic failed."],
             }
 
     @staticmethod
@@ -1176,14 +1054,8 @@ class AgriculturalWorkflow:
 
         return {
             "human_decision": decision["decision"],
-            "audit_log": [
-                (
-                    "Human reviewer selected "
-                    f"{decision['decision']}."
-                )
-            ],
+            "audit_log": [f"Human reviewer selected {decision['decision']}."],
         }
-
 
     @staticmethod
     def _work_order_node(
@@ -1196,9 +1068,7 @@ class AgriculturalWorkflow:
         """
 
         result = WorkOrderResult(
-            work_order_id=(
-                f"DEMO-{uuid4().hex[:8].upper()}"
-            ),
+            work_order_id=(f"DEMO-{uuid4().hex[:8].upper()}"),
             status="simulated",
             message=(
                 "A simulated work-order record was created. "
@@ -1210,11 +1080,8 @@ class AgriculturalWorkflow:
             "work_order": result,
             "final_status": "simulated_work_order_created",
             "final_message": result.message,
-            "audit_log": [
-                "Simulated work order created."
-            ],
+            "audit_log": ["Simulated work order created."],
         }
-
 
     @staticmethod
     def _rejected_node(
@@ -1222,14 +1089,9 @@ class AgriculturalWorkflow:
     ) -> dict:
         return {
             "final_status": "rejected",
-            "final_message": (
-                "The human reviewer rejected the proposed plan."
-            ),
-            "audit_log": [
-                "Plan rejected by human reviewer."
-            ],
+            "final_message": ("The human reviewer rejected the proposed plan."),
+            "audit_log": ["Plan rejected by human reviewer."],
         }
-
 
     @staticmethod
     def _escalation_node(
@@ -1237,14 +1099,9 @@ class AgriculturalWorkflow:
     ) -> dict:
         return {
             "final_status": "escalated",
-            "final_message": (
-                "The request requires manual compliance review."
-            ),
-            "audit_log": [
-                "Request escalated."
-            ],
+            "final_message": ("The request requires manual compliance review."),
+            "audit_log": ["Request escalated."],
         }
-
 
     @staticmethod
     def _failure_node(
@@ -1256,11 +1113,9 @@ class AgriculturalWorkflow:
                 "error",
                 "An unexpected workflow failure occurred.",
             ),
-            "audit_log": [
-                "Workflow ended in a controlled failure."
-            ],
+            "audit_log": ["Workflow ended in a controlled failure."],
         }
-    
+
     @staticmethod
     def _route_after_intake(
         state: AgriculturalState,
@@ -1277,7 +1132,6 @@ class AgriculturalWorkflow:
 
         return "gather_context"
 
-
     @staticmethod
     def _route_after_context(
         state: AgriculturalState,
@@ -1289,7 +1143,6 @@ class AgriculturalWorkflow:
             return "failure"
 
         return "retrieve"
-
 
     @staticmethod
     def _route_after_retrieval(
@@ -1307,7 +1160,6 @@ class AgriculturalWorkflow:
 
         return "specialist"
 
-
     @staticmethod
     def _route_after_specialist(
         state: AgriculturalState,
@@ -1320,7 +1172,6 @@ class AgriculturalWorkflow:
 
         return "rules"
 
-
     @staticmethod
     def _route_after_rules(
         state: AgriculturalState,
@@ -1332,7 +1183,6 @@ class AgriculturalWorkflow:
             return "failure"
 
         return "critic"
-
 
     @staticmethod
     def _route_after_critic(
@@ -1350,19 +1200,13 @@ class AgriculturalWorkflow:
         failed_hard_rules = [
             check
             for check in state["rule_result"].checks
-            if (
-                not check.passed
-                and check.severity == "hard_violation"
-            )
+            if (not check.passed and check.severity == "hard_violation")
         ]
 
         failed_fixable_rules = [
             check
             for check in state["rule_result"].checks
-            if (
-                not check.passed
-                and check.severity == "fixable"
-            )
+            if (not check.passed and check.severity == "fixable")
         ]
 
         review = state["review"]
@@ -1385,7 +1229,6 @@ class AgriculturalWorkflow:
             return "clarify"
 
         return "human_review"
-
 
     @staticmethod
     def _route_after_human_review(
@@ -1425,7 +1268,6 @@ class AgriculturalWorkflow:
             },
             config=config,
         )
-
 
     def resume_human_review(
         self,
