@@ -36,6 +36,7 @@ def field_record() -> FarmField:
     return FarmField(
         id="F-01",
         name="Test Field",
+        acres=80.0,
         crop="soybean",
         trait_package=TraitPackage.XTENDFLEX,
         growth_stage="R2",

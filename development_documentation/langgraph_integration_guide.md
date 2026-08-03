@@ -234,6 +234,7 @@ WeatherForecast
 FarmField(
     id=...,
     name=...,
+    acres=...,
     crop=...,
     trait_package=...,
     growth_stage=...,
@@ -254,6 +255,7 @@ ProductLimits(
     allowed_traits=...,
     earliest_growth_stage=...,
     latest_growth_stage=...,
+    default_rate_fl_oz_per_acre=...,
     max_rate_fl_oz_per_acre=...,
     max_seasonal_fl_oz_per_acre=...,
     max_applications_per_season=...,

@@ -54,6 +54,8 @@ class FarmField(BaseModel):
 
     id: str
     name: str
+    # Tillable acres in the whole field, a request may treat fewer
+    acres: float
     crop: str = "soybean"
     trait_package: TraitPackage
     growth_stage: str
@@ -86,9 +88,7 @@ class ProductLimits(BaseModel):
     epa_reg_no: str
 
     # Crops the label registers the product for, read from its crop-use sections
-    # only -- never from rotational-crop or drift-sensitivity tables, which name
-    # crops for the opposite reason. Field and row crops only: the master labels
-    # also cover orchard, vegetable, and non-crop sites that are not listed here.
+    # labels also cover orchard, vegetable, and non-crop sites that are not listed here
     supported_crops: list[str] | None = None
 
     # None where the product has no trait restriction at all: a fungicide has no
@@ -97,6 +97,8 @@ class ProductLimits(BaseModel):
     allowed_traits: list[TraitPackage] | None = None
     earliest_growth_stage: str | None = None
     latest_growth_stage: str | None = None
+    # Where to start when the request names no rate
+    default_rate_fl_oz_per_acre: float | None = None
     max_rate_fl_oz_per_acre: float | None = None
     max_seasonal_fl_oz_per_acre: float | None = None
     max_applications_per_season: int | None = None

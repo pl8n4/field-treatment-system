@@ -51,6 +51,17 @@ LLM.
   (never `[]`) for Delaro Complete and Paraquat, where trait tolerance is
   meaningless. `supported_crops` comes from the label's crop-use sections only,
   field and row crops only.
+- **`default_rate_fl_oz_per_acre` is a starting point, `max_` is the
+  ceiling.** Use the default when the request names no rate — never the max,
+  which is the worst-case ceiling and burns the seasonal budget. Each default
+  is the lowest rate its label gives for the ordinary broadcast soybean use,
+  because labels key rate to weed size, weed species, and disease pressure and
+  the records model none of those. Going higher is on-label, but needs a
+  reason from the label.
+- **`FarmField.acres` is the default treated extent, not a fixed one.** A
+  request that names its own acreage wins; spot spraying part of a field is
+  normal. Acres never enters a compliance check — every label limit is per
+  acre — it only sizes the work order.
 - **Compare growth stages by index into `SOYBEAN_STAGES`**, never as strings —
   `"V4" < "R1"` is `False` even though V4 comes first. Stage values are plain
   `str`, not validated against the tuple.

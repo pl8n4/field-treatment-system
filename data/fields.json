@@ -2,6 +2,7 @@
   {
     "id": "F-01",
     "name": "Hartley North",
+    "acres": 118.0,
     "crop": "soybean",
     "trait_package": "xtendflex",
     "growth_stage": "V4",
@@ -13,6 +14,7 @@
   {
     "id": "F-02",
     "name": "Hartley South",
+    "acres": 96.5,
     "crop": "soybean",
     "trait_package": "enlist_e3",
     "growth_stage": "V3",
@@ -24,6 +26,7 @@
   {
     "id": "F-03",
     "name": "Kessler Bottoms",
+    "acres": 142.0,
     "crop": "soybean",
     "trait_package": "roundup_ready_2_xtend",
     "growth_stage": "R4",
@@ -35,6 +38,7 @@
   {
     "id": "F-04",
     "name": "Miller 40",
+    "acres": 38.5,
     "crop": "soybean",
     "trait_package": "libertylink",
     "growth_stage": "V3",
@@ -46,6 +50,7 @@
   {
     "id": "F-05",
     "name": "Vance Creek",
+    "acres": 64.0,
     "crop": "soybean",
     "trait_package": "conventional",
     "growth_stage": "R3",
@@ -57,6 +62,7 @@
   {
     "id": "F-06",
     "name": "Doyle East",
+    "acres": 77.0,
     "crop": "soybean",
     "trait_package": "xtendflex",
     "growth_stage": "R1",
@@ -68,6 +74,7 @@
   {
     "id": "F-07",
     "name": "Doyle West",
+    "acres": 81.5,
     "crop": "soybean",
     "trait_package": "enlist_e3",
     "growth_stage": "V5",
@@ -79,6 +86,7 @@
   {
     "id": "F-08",
     "name": "Prairie Ridge",
+    "acres": 205.0,
     "crop": "soybean",
     "trait_package": "roundup_ready_2_xtend",
     "growth_stage": "R5",
@@ -90,6 +98,7 @@
   {
     "id": "F-09",
     "name": "Schaeffer 80",
+    "acres": 76.0,
     "crop": "soybean",
     "trait_package": "xtendflex",
     "growth_stage": "V3",
@@ -101,6 +110,7 @@
   {
     "id": "F-10",
     "name": "Lindell Flats",
+    "acres": 110.0,
     "crop": "soybean",
     "trait_package": "enlist_e3",
     "growth_stage": "R4",
