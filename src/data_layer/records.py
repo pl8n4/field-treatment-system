@@ -17,6 +17,7 @@ DATA_DIR = Path(__file__).parents[2] / "data"
 
 M = TypeVar("M", bound=BaseModel)
 
+
 @cache
 def _load(filename: str, model: type[M]) -> tuple[M, ...]:
     """Read a JSON array into validated models. Cached; the files never change."""

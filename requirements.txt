@@ -9,5 +9,6 @@ langchain-text-splitters>=1.0
 langgraph>=1.2.10
 pydantic>=2.13.4
 pypdf>=4.0
+python-dotenv>=1.0
 requests>=2.31
 sentence-transformers>=3.0

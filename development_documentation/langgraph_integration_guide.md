@@ -24,7 +24,9 @@ LangGraph coordinates this sequence and maintains the shared state.
 
 ## Shared schemas
 
-The current integration models are located in `src/schemas.py`.
+The workflow-owned models are located in `src/workflow/schemas.py`. Farm,
+product, weather, and retrieval models are located in
+`src/data_layer/schemas.py`.
 
 These models are the proposed interfaces between our workstreams. They can be changed if a teammate identifies missing fields or a difficult assumption, but changes should be discussed so downstream code stays synchronized.
 
@@ -109,7 +111,14 @@ state.get("context_sources", [])
 state.get("audit_log", [])
 ```
 
-The current graph returns Pydantic model objects for structured fields. Please let me know if Streamlit would benefit from receiving plain dictionaries instead.
+The current graph returns its raw state dictionary. Structured values inside
+that dictionary, such as `request`, `plan`, and `review`, are Pydantic model
+objects. `WorkflowResponse` exists as a possible normalized response model but
+is not currently returned by `start()` or `resume_human_review()`.
+
+Please let me know if Streamlit would benefit from a normalized response or
+plain dictionaries. That boundary can be adapted without changing the graph's
+internal state.
 
 ## RAG integration
 
@@ -125,30 +134,39 @@ state["product_record"]
 
 The most important retrieval filter is the proposed product. Results should come from that product's label rather than mixing evidence from all product labels.
 
-### Expected return type
+### Current retrieval call
 
-The graph expects a `list[EvidenceChunk]`.
-
-Each chunk currently contains:
+The graph calls:
 
 ```python
-class EvidenceChunk(BaseModel):
-    content: str
+search(query, product=product.name, k=2)
+```
+
+It runs several focused queries covering the observed issue, application
+rates, growth stage, wind and buffer restrictions, temperature inversions,
+REI, and PHI. The product filter keeps evidence inside the selected product's
+label.
+
+The graph expects a `list[LabelChunk]`. Each chunk contains:
+
+```python
+class LabelChunk(BaseModel):
+    text: str
+    product: str
+    epa_reg_no: str
+    page: int
     source: str
-    page: int | None = None
-    product_name: str | None = None
-    registration_number: str | None = None
 ```
 
 Example:
 
 ```python
-EvidenceChunk(
-    content="Do not apply when wind exceeds 15 mph.",
-    source="000264-01207-20260611.pdf",
+LabelChunk(
+    text="Do not apply when wind exceeds 15 mph.",
+    product="Delaro Complete",
+    epa_reg_no="264-1207",
     page=7,
-    product_name="Example Product",
-    registration_number="000264-01207",
+    source="000264-01207-20260611.pdf",
 )
 ```
 
@@ -156,7 +174,7 @@ EvidenceChunk(
 
 - Retrieval returns only evidence relevant to the proposed product.
 - Every chunk includes a source.
-- Page numbers are included when available.
+- Every chunk includes a page number.
 - Product name and registration number support filtering and citation.
 - An empty evidence list causes the workflow to request more information instead of inventing requirements.
 
@@ -187,68 +205,78 @@ proposed_product
 proposed_date
 ```
 
-The tools may fill:
+The application records currently fill:
 
 ```text
 crop
-acres
-requested_rate
 ```
+
+`acres` and `requested_rate` are optional inputs, but the current field records
+do not contain acreage and the product records do not define a default rate.
+Until those policies are decided, downstream code should not assume that the
+tools can supply either value. When present, both values must be greater than
+zero.
 
 ### Expected context results
 
 The graph currently expects four results:
 
 ```python
-FieldRecord
-ProductRecord
-list[ApplicationRecord]
+FarmField
+ProductLimits
+list[Application]
 WeatherForecast
 ```
 
 #### Field lookup
 
 ```python
-FieldRecord(
-    field_id=...,
+FarmField(
+    id=...,
+    name=...,
     crop=...,
-    acres=...,
     trait_package=...,
     growth_stage=...,
     expected_harvest_date=...,
     latitude=...,
     longitude=...,
-    sensitive_site_distance_feet=...,
+    feet_to_sensitive_site=...,
 )
 ```
 
 #### Product lookup
 
 ```python
-ProductRecord(
-    product_name=...,
+ProductLimits(
+    name=...,
+    epa_reg_no=...,
     supported_crops=...,
-    compatible_traits=...,
-    allowed_growth_stages=...,
-    minimum_rate=...,
-    maximum_rate=...,
-    seasonal_maximum_rate=...,
-    maximum_wind_mph=...,
-    maximum_temperature_f=...,
-    required_buffer_feet=...,
+    allowed_traits=...,
+    earliest_growth_stage=...,
+    latest_growth_stage=...,
+    max_rate_fl_oz_per_acre=...,
+    max_seasonal_fl_oz_per_acre=...,
+    max_applications_per_season=...,
     rei_hours=...,
     phi_days=...,
+    wind_min_mph=...,
+    wind_max_mph=...,
+    downwind_buffer_ft=...,
 )
 ```
+
+For optional product limits, `None` means the label sets no such restriction.
+It does not mean that retrieval failed.
 
 #### Application history
 
 ```python
-ApplicationRecord(
+Application(
+    id=...,
     field_id=...,
-    product_name=...,
-    application_date=...,
-    rate=...,
+    product=...,
+    applied_on=...,
+    rate_fl_oz_per_acre=...,
 )
 ```
 
@@ -258,13 +286,13 @@ The graph expects a list because a field may have multiple prior applications.
 
 ```python
 WeatherForecast(
-    forecast_date=...,
-    high_temperature_f=...,
+    latitude=...,
+    longitude=...,
+    target_date=...,
+    high_temp_f=...,
     wind_speed_mph=...,
-    wind_direction=...,
-    precipitation_probability=...,
-    source=...,
-    cached=...,
+    wind_direction_deg=...,
+    precipitation_probability_pct=...,
 )
 ```
 
@@ -275,9 +303,11 @@ Current assumptions:
 - Lookup tools are read-only.
 - They return Pydantic models rather than raw JSON.
 - Dates are converted to Python `date` values before entering graph state.
-- Missing records raise or return a clearly identifiable error.
+- `find_field()` and `find_product()` return `None` for missing or ambiguous
+  matches. The graph routes that result to clarification.
 - Tools do not decide whether a treatment is approved.
-- Weather results identify their source and whether they were cached.
+- `get_forecast()` raises `WeatherUnavailable` when the live Open-Meteo
+  forecast cannot be obtained or the date is outside its forecast horizon.
 
 If returning raw dictionaries is easier, let me know. I can adapt them at the LangGraph boundary instead of requiring every tool to construct Pydantic objects.
 
@@ -299,19 +329,36 @@ For the MVP, the UI and result should clearly state that no real treatment was s
 
 ## Rule engine boundary
 
-The graph currently contains a mock deterministic rule engine. It checks:
+The graph currently owns the deterministic rule engine. It runs after the
+Specialist drafts a plan and checks 16 conditions:
 
 ```text
+field identity
+product identity
+requested treatment date
+requested rate, when supplied
+requested acreage, when supplied
+maximum individual application rate
+seasonal cumulative rate
+maximum applications per season
 crop compatibility
 trait compatibility
-growth stage
-individual application rate
-seasonal cumulative rate
-wind speed
-temperature
-buffer distance
+growth-stage window
+maximum wind speed
+minimum wind speed
+downwind buffer distance
 PHI before harvest
+REI recording
 ```
+
+REI means restricted-entry interval: the time workers must wait before
+re-entering a treated area. PHI means pre-harvest interval: the minimum time
+between treatment and harvest. REI is recorded as informational; PHI is checked
+against the expected harvest date.
+
+The current product records do not contain a numeric maximum temperature. The
+labels instead discuss temperature inversions, which the MVP weather model does
+not represent as a deterministic rule.
 
 The graph owns when the engine runs and how results are routed. Whether the final rule implementation belongs with LangGraph or Tools can be decided as a group.
 

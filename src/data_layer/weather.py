@@ -23,11 +23,14 @@ _DAILY_VARIABLES = (
     "precipitation_probability_max",
 )
 
+
 class WeatherUnavailable(RuntimeError):
     """The forecast could not be retrieved or was incomplete."""
 
 
-def get_forecast(latitude: float, longitude: float, target_date: date) -> WeatherForecast:
+def get_forecast(
+    latitude: float, longitude: float, target_date: date
+) -> WeatherForecast:
     """Daily forecast for one point and date.
     Raises WeatherUnavailable on network failure, an error response, or a date
     outside the forecast horizon.
@@ -38,7 +41,7 @@ def get_forecast(latitude: float, longitude: float, target_date: date) -> Weathe
             f"{FORECAST_HORIZON_DAYS} days ahead."
         )
 
-    params = {
+    params: dict[str, str | float] = {
         "latitude": latitude,
         "longitude": longitude,
         "daily": ",".join(_DAILY_VARIABLES),

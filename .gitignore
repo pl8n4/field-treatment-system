@@ -4,3 +4,7 @@ __pycache__/
 .env
 chroma/
 *.py[cod]
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/

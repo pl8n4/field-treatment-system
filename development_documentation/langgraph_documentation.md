@@ -30,7 +30,8 @@ field-treatment-system/
                         Contracts shared with other workstreams
 ```
 
-Most of the LangGraph implementation is currently contained in `src/graph.py`.
+Most of the LangGraph implementation is currently contained in
+`src/workflow/graph.py`.
 
 ## LangGraph concepts used in this project
 
@@ -554,8 +555,10 @@ Changes to shared schemas should be communicated to the team because multiple pa
 
 For a first review of the implementation, read in this order:
 
-1. `src/schemas.py` to understand the structured data.
-2. `AgriculturalState` in `src/graph.py` to see what the workflow stores.
+1. `src/workflow/schemas.py` and `src/data_layer/schemas.py` to understand the
+   structured data.
+2. `AgriculturalState` in `src/workflow/graph.py` to see what the workflow
+   stores.
 3. `_build_graph` to understand the nodes and routes.
 4. `_intake_node`, `_specialist_node`, and `_critic_node` to see the agent roles.
 5. `_rule_engine_node` to see deterministic validation.
