@@ -1,11 +1,11 @@
+"""Pydantic models for the data layer: farm records, label facts, weather, chunks."""
+
 from __future__ import annotations
 
 from datetime import date
 from enum import Enum
 
 from pydantic import BaseModel
-
-"""Pydantic models for the data layer: farm records, label facts, weather, chunks."""
 
 # Soybean growth stages in label order
 SOYBEAN_STAGES = (
@@ -69,6 +69,12 @@ class ProductLimits(BaseModel):
     name: str
     epa_reg_no: str
 
+    # Crops the label registers the product for, read from its crop-use sections
+    # only -- never from rotational-crop or drift-sensitivity tables, which name
+    # crops for the opposite reason. Field and row crops only: the master labels
+    # also cover orchard, vegetable, and non-crop sites that are not listed here.
+    supported_crops: list[str] | None = None
+
     # None where the product has no trait restriction at all: a fungicide has no
     # herbicidal activity, and a harvest-aid desiccant is applied to kill the crop.
     # An empty list would mean no trait may be sprayed, which is never true.
@@ -82,8 +88,10 @@ class ProductLimits(BaseModel):
     phi_days: int | None = None  # pre-harvest interval
     wind_min_mph: float | None = None
     wind_max_mph: float | None = None
-    max_temp_f: float | None = None
     downwind_buffer_ft: int | None = None
+    # No max_temp_f: none of the five labels sets a numeric air-temperature
+    # ceiling. They prohibit spraying into a temperature inversion instead,
+    # which is a condition rather than a threshold and is not modelled here.
 
 
 class LabelChunk(BaseModel):

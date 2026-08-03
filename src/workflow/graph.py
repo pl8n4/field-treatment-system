@@ -41,6 +41,7 @@ from data_layer.schemas import (
     FarmField,
     LabelChunk,
     ProductLimits,
+    TraitPackage,
     WeatherForecast,
 )
 from data_layer.weather import WeatherUnavailable, get_forecast
@@ -296,6 +297,9 @@ class AgriculturalWorkflow:
                 IntakeDecision,
                 FarmField,
                 ProductLimits,
+                # nested inside FarmField and ProductLimits, so the checkpointer
+                # needs it by name to restore state after a human-review pause
+                TraitPackage,
                 Application,
                 WeatherForecast,
                 LabelChunk,
@@ -871,6 +875,16 @@ class AgriculturalWorkflow:
                     ),
                 ),
                 rule(
+                    "crop_compatibility",
+                    product.supported_crops,
+                    lambda: field.crop in product.supported_crops,
+                    "hard_violation",
+                    lambda: (
+                        f"Field is planted to {field.crop}; the label registers "
+                        f"{', '.join(product.supported_crops)}."
+                    ),
+                ),
+                rule(
                     "trait_compatibility",
                     product.allowed_traits,
                     lambda: field.trait_package in product.allowed_traits,
@@ -909,16 +923,6 @@ class AgriculturalWorkflow:
                     lambda: (
                         f"Forecast wind is {weather.wind_speed_mph} mph; "
                         f"the label requires at least {product.wind_min_mph} mph."
-                    ),
-                ),
-                rule(
-                    "temperature",
-                    product.max_temp_f,
-                    lambda: weather.high_temp_f <= product.max_temp_f,
-                    "fixable",
-                    lambda: (
-                        f"Forecast high is {weather.high_temp_f} F; "
-                        f"label maximum is {product.max_temp_f} F."
                     ),
                 ),
                 rule(
@@ -1088,9 +1092,12 @@ class AgriculturalWorkflow:
                     citations=state["plan"].citations,
                 )
 
+                passed_count = sum(check.passed for check in rule_result.checks)
+
                 validation_message = (
-                    "Critic verdict was replaced because it contradicted "
-                    "the 9/9 passing deterministic rule checks."
+                    "Critic verdict was replaced because it contradicted the "
+                    f"{passed_count}/{len(rule_result.checks)} passing "
+                    "deterministic rule checks."
                 )
 
             update = {
