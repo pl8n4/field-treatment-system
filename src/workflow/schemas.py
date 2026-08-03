@@ -42,11 +42,13 @@ class TreatmentRequest(BaseModel):
 
     acres: float | None = Field(
         default=None,
+        gt=0,
         description="Number of acres to be treated",
     )
 
     requested_rate: float | None = Field(
         default=None,
+        gt=0,
         description="Requested application rate, when provided",
     )
 
@@ -79,8 +81,14 @@ class TreatmentPlan(BaseModel):
     field_id: str
     product_name: str
     treatment_date: date
-    proposed_rate: float
-    treated_acres: float
+
+    proposed_rate: float = Field(
+        gt=0,
+        description="Proposed application rate; must be greater than zero",
+    )
+    treated_acres: float = Field(
+        gt=0, description="Number of treated acres; must be greater than zero."
+    )
 
     timing_summary: str
     buffer_summary: str

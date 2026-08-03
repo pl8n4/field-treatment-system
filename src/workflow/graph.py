@@ -21,14 +21,6 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph, add_messages
 from langgraph.types import Command, interrupt
 
-from workflow.config import (
-    GEMINI_MODEL,
-    MODEL_MAX_TOKENS,
-    MODEL_PROVIDER,
-    OLLAMA_BASE_URL,
-    OLLAMA_MODEL,
-    validate_settings,
-)
 from data_layer.records import (
     applications_for,
     find_field,
@@ -45,6 +37,14 @@ from data_layer.schemas import (
     WeatherForecast,
 )
 from data_layer.weather import WeatherUnavailable, get_forecast
+from workflow.config import (
+    GEMINI_MODEL,
+    MODEL_MAX_TOKENS,
+    MODEL_PROVIDER,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    validate_settings,
+)
 from workflow.schemas import (
     CriticDecision,
     IntakeDecision,
@@ -90,6 +90,7 @@ def _stage_in_window(stage: str, product: ProductLimits) -> bool:
         return False
 
     return True
+
 
 INTAKE_PROMPT = ChatPromptTemplate.from_template("""
 You are the intake parser for an agricultural field-treatment
@@ -654,6 +655,10 @@ class AgriculturalWorkflow:
                     ],
                 }
 
+            # Assertions for mypy. The above return returns if these are not true
+            assert field is not None
+            assert product is not None
+
             history = applications_for(
                 field.id,
                 season_year=proposed_date.year,
@@ -682,10 +687,12 @@ class AgriculturalWorkflow:
                 "weather": weather,
                 "error": None,
                 "audit_log": [
-                    f"Loaded {field.name} ({field.id}, {field.trait_package.value}, "
-                    f"{field.growth_stage}), {product.name}, "
-                    f"{len(history)} prior application(s) in {proposed_date.year}, "
-                    f"and the {proposed_date} forecast."
+                    (
+                        f"Loaded {field.name} ({field.id}, {field.trait_package.value}, "
+                        f"{field.growth_stage}), {product.name}, "
+                        f"{len(history)} prior application(s) in {proposed_date.year}, "
+                        f"and the {proposed_date} forecast."
+                    )
                 ],
             }
 
@@ -736,8 +743,10 @@ class AgriculturalWorkflow:
                 ),
                 "error": None,
                 "audit_log": [
-                    f"Retrieved {len(evidence)} label chunks for {product.name} "
-                    f"from {len(sources)} source(s) over {len(queries)} queries."
+                    (
+                        f"Retrieved {len(evidence)} label chunks for {product.name} "
+                        f"from {len(sources)} source(s) over {len(queries)} queries."
+                    )
                 ],
             }
 
@@ -808,6 +817,7 @@ class AgriculturalWorkflow:
         """
 
         try:
+            request = state["request"]
             plan = state["plan"]
             product = state["product_record"]
             field = state["field_record"]
@@ -831,19 +841,91 @@ class AgriculturalWorkflow:
                     explanation=explanation(),
                 )
 
+            expected_treatment_date = (
+                date.fromisoformat(request.proposed_date)
+                if request.proposed_date
+                else None
+            )
+
             same_product = [
                 record
                 for record in state["application_history"]
                 if record.product.lower() == product.name.lower()
             ]
+
             prior_rate = sum(record.rate_fl_oz_per_acre for record in same_product)
             season_total = prior_rate + plan.proposed_rate
 
             checks = [
                 rule(
+                    "field_identity",
+                    field.id,
+                    lambda: (
+                        plan.field_id.strip().casefold() == field.id.strip().casefold()
+                    ),
+                    "fixable",
+                    lambda: (
+                        f"The plan uses field {plan.field_id}; "
+                        f"the resolved field is {field.id}."
+                    ),
+                ),
+                rule(
+                    "product_identity",
+                    product.name,
+                    lambda: (
+                        plan.product_name.strip().casefold()
+                        == product.name.strip().casefold()
+                    ),
+                    "fixable",
+                    lambda: (
+                        f"The plan uses {plan.product_name}; "
+                        f"the resolved product is {product.name}."
+                    ),
+                ),
+                rule(
+                    "requested_treatment_date",
+                    expected_treatment_date,
+                    lambda: plan.treatment_date == expected_treatment_date,
+                    "fixable",
+                    lambda: (
+                        f"The plan date is {plan.treatment_date}; "
+                        f"the requested date is {expected_treatment_date}."
+                    ),
+                ),
+                rule(
+                    "requested_rate",
+                    request.requested_rate,
+                    lambda: (
+                        request.requested_rate is not None
+                        and abs(plan.proposed_rate - request.requested_rate) < 0.000001
+                    ),
+                    "fixable",
+                    lambda: (
+                        f"The plan rate is {plan.proposed_rate} fl oz/acre; "
+                        f"the requested rate is "
+                        f"{request.requested_rate} fl oz/acre."
+                    ),
+                ),
+                rule(
+                    "requested_acres",
+                    request.acres,
+                    lambda: (
+                        request.acres is not None
+                        and abs(plan.treated_acres - request.acres) < 0.000001
+                    ),
+                    "fixable",
+                    lambda: (
+                        f"The plan treats {plan.treated_acres} acres; "
+                        f"the request specifies {request.acres} acres."
+                    ),
+                ),
+                rule(
                     "maximum_rate",
                     product.max_rate_fl_oz_per_acre,
-                    lambda: plan.proposed_rate <= product.max_rate_fl_oz_per_acre,
+                    lambda: (
+                        product.max_rate_fl_oz_per_acre is not None
+                        and plan.proposed_rate <= product.max_rate_fl_oz_per_acre
+                    ),
                     "fixable",
                     lambda: (
                         f"Plan rate is {plan.proposed_rate} fl oz/acre; "
@@ -853,7 +935,10 @@ class AgriculturalWorkflow:
                 rule(
                     "seasonal_maximum_rate",
                     product.max_seasonal_fl_oz_per_acre,
-                    lambda: season_total <= product.max_seasonal_fl_oz_per_acre,
+                    lambda: (
+                        product.max_seasonal_fl_oz_per_acre is not None
+                        and season_total <= product.max_seasonal_fl_oz_per_acre
+                    ),
                     "fixable",
                     lambda: (
                         f"{prior_rate} fl oz/acre already applied this season, "
@@ -865,7 +950,8 @@ class AgriculturalWorkflow:
                     "applications_per_season",
                     product.max_applications_per_season,
                     lambda: (
-                        len(same_product) + 1 <= product.max_applications_per_season
+                        product.max_applications_per_season is not None
+                        and len(same_product) + 1 <= product.max_applications_per_season
                     ),
                     "hard_violation",
                     lambda: (
@@ -877,21 +963,27 @@ class AgriculturalWorkflow:
                 rule(
                     "crop_compatibility",
                     product.supported_crops,
-                    lambda: field.crop in product.supported_crops,
+                    lambda: (
+                        product.supported_crops is not None
+                        and field.crop in product.supported_crops
+                    ),
                     "hard_violation",
                     lambda: (
                         f"Field is planted to {field.crop}; the label registers "
-                        f"{', '.join(product.supported_crops)}."
+                        f"{', '.join(product.supported_crops or [])}."
                     ),
                 ),
                 rule(
                     "trait_compatibility",
                     product.allowed_traits,
-                    lambda: field.trait_package in product.allowed_traits,
+                    lambda: (
+                        product.allowed_traits is not None
+                        and field.trait_package in product.allowed_traits
+                    ),
                     "hard_violation",
                     lambda: (
                         f"Field is {field.trait_package.value}; the label allows "
-                        f"{', '.join(t.value for t in product.allowed_traits)}."
+                        f"{', '.join(t.value for t in product.allowed_traits or [])}."
                     ),
                 ),
                 rule(
@@ -908,7 +1000,10 @@ class AgriculturalWorkflow:
                 rule(
                     "wind_maximum",
                     product.wind_max_mph,
-                    lambda: weather.wind_speed_mph <= product.wind_max_mph,
+                    lambda: (
+                        product.wind_max_mph is not None
+                        and weather.wind_speed_mph <= product.wind_max_mph
+                    ),
                     "fixable",
                     lambda: (
                         f"Forecast wind is {weather.wind_speed_mph} mph; "
@@ -918,7 +1013,10 @@ class AgriculturalWorkflow:
                 rule(
                     "wind_minimum",
                     product.wind_min_mph,
-                    lambda: weather.wind_speed_mph >= product.wind_min_mph,
+                    lambda: (
+                        product.wind_min_mph is not None
+                        and weather.wind_speed_mph >= product.wind_min_mph
+                    ),
                     "fixable",
                     lambda: (
                         f"Forecast wind is {weather.wind_speed_mph} mph; "
@@ -929,7 +1027,8 @@ class AgriculturalWorkflow:
                     "downwind_buffer",
                     product.downwind_buffer_ft,
                     lambda: (
-                        field.feet_to_sensitive_site >= product.downwind_buffer_ft
+                        product.downwind_buffer_ft is not None
+                        and field.feet_to_sensitive_site >= product.downwind_buffer_ft
                     ),
                     "hard_violation",
                     lambda: (
@@ -942,13 +1041,14 @@ class AgriculturalWorkflow:
                     "phi_before_harvest",
                     product.phi_days,
                     lambda: (
-                        plan.treatment_date + timedelta(days=product.phi_days)
+                        product.phi_days is not None
+                        and plan.treatment_date + timedelta(days=product.phi_days)
                         <= field.expected_harvest_date
                     ),
                     "hard_violation",
                     lambda: (
                         "Pre-harvest interval ends on "
-                        f"{plan.treatment_date + timedelta(days=product.phi_days)}; "
+                        f"{plan.treatment_date + timedelta(days=product.phi_days or 0)}; "
                         f"expected harvest is {field.expected_harvest_date}."
                     ),
                 ),
@@ -975,10 +1075,7 @@ class AgriculturalWorkflow:
                 "rule_result": result,
                 "error": None,
                 "audit_log": [
-                    (
-                        f"Rule engine completed: {passed_count}/"
-                        f"{len(checks)} checks passed."
-                    )
+                    f"Rule engine completed: {passed_count}/{len(checks)} checks passed."
                 ],
             }
 
