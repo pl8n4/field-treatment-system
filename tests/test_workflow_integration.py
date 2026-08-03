@@ -35,7 +35,7 @@ def intake_decision(
     *,
     field_id: str = "F-02",
     product: str = "Enlist One",
-    acres: float = 80,
+    acres: float | None = 80,
     requested_rate: float | None = None,
 ) -> IntakeDecision:
     return IntakeDecision(
@@ -194,6 +194,8 @@ def test_compiled_workflow_interrupt_and_resume(
     assert interrupted["product_record"].name == "Enlist One"
     assert interrupted["rule_result"].all_passed is True
     assert len(interrupted["rule_result"].checks) == 16
+    assert interrupted["request"].acres == 80
+    assert interrupted["request"].requested_rate == 32
     assert set(retrieved_products) == {"Enlist One"}
     assert "Enlist One" in chains[TreatmentPlan].inputs[0]["evidence"]
 
@@ -239,6 +241,69 @@ def test_weather_failure_routes_to_clarification(
     assert state["final_status"] == "needs_information"
     assert "forecast unavailable for test" in state["missing_information"][0]
     assert "evidence" not in state
+
+
+def test_context_uses_field_acres_and_product_default_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_successful_boundaries(monkeypatch)
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(acres=None, requested_rate=None)],
+        plans=[treatment_plan(acres=96.5, rate=32)],
+        reviews=[critic_decision()],
+    )
+
+    state = workflow.start("Treat F-02 with Enlist One.", str(uuid4()))
+
+    assert state.get("__interrupt__")
+    assert state["field_record"].acres == 96.5
+    assert state["product_record"].default_rate_fl_oz_per_acre == 32
+    assert state["request"].acres == 96.5
+    assert state["request"].requested_rate == 32
+    assert state["plan"].treated_acres == 96.5
+    assert state["plan"].proposed_rate == 32
+
+
+def test_requested_acres_above_field_size_routes_to_clarification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(acres=100)],
+    )
+
+    state = workflow.start("Treat 100 acres of F-02.", str(uuid4()))
+
+    assert state["final_status"] == "needs_information"
+    assert "100.0" in state["missing_information"][0]
+    assert "96.5" in state["missing_information"][0]
+    assert "plan" not in state
+
+
+def test_missing_requested_and_default_rate_routes_to_clarification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    product = graph_module.find_product("Enlist One")
+    assert product is not None
+    product_without_default = product.model_copy(
+        update={"default_rate_fl_oz_per_acre": None}
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "find_product",
+        lambda name: product_without_default,
+    )
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(requested_rate=None)],
+    )
+
+    state = workflow.start("Treat F-02 with Enlist One.", str(uuid4()))
+
+    assert state["final_status"] == "needs_information"
+    assert state["missing_information"] == ["An application rate for Enlist One"]
+    assert "plan" not in state
 
 
 def test_fixable_failure_revises_plan_once(
@@ -297,6 +362,7 @@ def test_thread_ids_keep_checkpoint_state_isolated(
             intake_decision(
                 field_id="F-06",
                 product="Roundup PowerMax 3",
+                acres=77,
                 requested_rate=32,
             ),
         ],
@@ -305,6 +371,7 @@ def test_thread_ids_keep_checkpoint_state_isolated(
             treatment_plan(
                 field_id="F-06",
                 product="Roundup PowerMax 3",
+                acres=77,
             ),
         ],
         reviews=[critic_decision(), critic_decision()],
