@@ -99,22 +99,24 @@ intake: IntakeDecision
 ### Operational context
 
 ```python
-field_record: FieldRecord
-product_record: ProductRecord
-application_history: list[ApplicationRecord]
+field_record: FarmField
+product_record: ProductLimits
+application_history: list[Application]
 weather: WeatherForecast
 ```
 
-These fields hold farm, product, prior-application, and weather data. They are currently produced by mock logic in `_gather_context_node`.
+These fields hold validated farm, product, prior-application, and weather data
+loaded through the data layer in `_gather_context_node`.
 
 ### Retrieved knowledge
 
 ```python
-evidence: list[EvidenceChunk]
+evidence: list[LabelChunk]
 context_sources: list[str]
 ```
 
-`evidence` contains relevant label passages. `context_sources` contains unique source names for display and human review. The current `_retrieve_node` returns mock evidence until the RAG implementation is connected.
+`evidence` contains product-filtered label passages from Chroma.
+`context_sources` contains unique PDF source names for display and human review.
 
 ### Plan and review state
 
@@ -250,7 +252,11 @@ proposed_product
 proposed_date
 ```
 
-The system may obtain `crop`, `acres`, and `requested_rate` from records or label evidence. This separation prevents an inconsistent model-provided route from controlling the graph.
+The system resolves `crop`, `acres`, and `requested_rate` during context
+gathering. User-supplied acreage and rate take precedence. Otherwise, acreage
+comes from `FarmField.acres` and rate comes from
+`ProductLimits.default_rate_fl_oz_per_acre`. This separation prevents an
+inconsistent model-provided route from controlling the graph.
 
 Routing:
 
@@ -270,27 +276,38 @@ The interface should keep the same `thread_id` when submitting the user's follow
 
 Method: `_gather_context_node`
 
-This is currently a mock integration point. It constructs example `FieldRecord`, `ProductRecord`, `ApplicationRecord`, and `WeatherForecast` objects.
-
-Eventually, this node should call teammate-provided read-only tools for:
+This node calls the data layer for:
 
 - Field lookup
 - Product lookup
 - Application-history lookup
 - Weather lookup
 
+After resolving the field and product, it normalizes the request using:
+
+```text
+effective acres = user acreage or field acreage
+effective rate = user rate or product default rate
+```
+
+The normalized values are written back into `TreatmentRequest`, making them
+the authoritative inputs for the Specialist and rule engine. If user acreage
+exceeds the field acreage, or no requested/default rate is available, the node
+routes to clarification.
+
 Routing:
 
-- Successful context -> `retrieve`
+- Successful context and fallback resolution -> `retrieve`
+- Missing, ambiguous, or invalid context -> `clarify`
 - Exception -> `failure`
 
 ### 4. Retrieval node
 
 Method: `_retrieve_node`
 
-This is currently a mock RAG integration point. It returns two example `EvidenceChunk` objects with source, page, product, and registration metadata.
-
-The final RAG implementation should retrieve evidence from the proposed product's label and preserve enough metadata for citations.
+This node queries the Chroma label collection through `search()`. Every query
+is filtered to the resolved product and returns `LabelChunk` objects containing
+text, source, page, product, and EPA registration metadata.
 
 Routing:
 
@@ -314,6 +331,10 @@ The Specialist agent receives:
 
 It returns a `TreatmentPlan` containing the treatment date, rate, acres, summaries, citations, assumptions, and the requirement for human review.
 
+The Specialist receives already-resolved acreage and rate values. It is
+instructed to preserve them unless previous review feedback explicitly requires
+a correction; it does not choose fallback values itself.
+
 The Specialist proposes a plan. It does not approve a real application.
 
 Routing:
@@ -331,15 +352,22 @@ The current checks are:
 
 | Rule | Purpose | Current failure severity |
 |---|---|---|
+| `field_identity` | Plan field matches the resolved field | Fixable |
+| `product_identity` | Plan product matches the resolved product | Fixable |
+| `requested_treatment_date` | Plan date matches the requested date | Fixable |
+| `requested_rate` | Plan rate matches the resolved requested/default rate | Fixable |
+| `requested_acres` | Plan acreage matches the resolved requested/field acreage | Fixable |
 | `maximum_rate` | Plan rate does not exceed the single-application maximum | Fixable |
 | `seasonal_maximum_rate` | Prior rate plus proposed rate stays within the seasonal maximum | Fixable |
+| `applications_per_season` | Application count stays within the seasonal maximum | Hard violation |
 | `crop_compatibility` | Product supports the field's crop | Hard violation |
 | `trait_compatibility` | Product supports the crop trait package | Hard violation |
-| `growth_stage` | Application is allowed at the current crop stage | Hard violation |
-| `wind` | Forecast wind does not exceed the product maximum | Fixable |
-| `temperature` | Forecast high does not exceed the product maximum | Fixable |
-| `buffer` | Sensitive-site distance meets the required buffer | Hard violation |
+| `growth_stage_window` | Application is allowed at the current crop stage | Hard violation |
+| `wind_maximum` | Forecast wind does not exceed the product maximum | Fixable |
+| `wind_minimum` | Forecast wind meets the product minimum | Fixable |
+| `downwind_buffer` | Sensitive-site distance meets the required buffer | Hard violation |
 | `phi_before_harvest` | PHI ends on or before expected harvest | Hard violation |
+| `restricted_entry_interval` | Records the REI for the plan and work order | Informational |
 
 The PHI deadline is calculated as:
 
@@ -349,7 +377,9 @@ phi_deadline = treatment_date + timedelta(days=phi_days)
 
 The check passes when `phi_deadline <= expected_harvest_date`.
 
-The current rule engine is marked as a mock integration point because the team may refine the final rules and structured product data.
+The rule engine is implemented with structured records and ordinary Python.
+The team may continue refining its rules and product data, but it is not a mock
+integration point.
 
 ### 7. Critic node
 

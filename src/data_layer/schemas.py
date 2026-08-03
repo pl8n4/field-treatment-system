@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Soybean growth stages in label order
 SOYBEAN_STAGES = (
@@ -55,7 +55,7 @@ class FarmField(BaseModel):
     id: str
     name: str
     # Tillable acres in the whole field, a request may treat fewer
-    acres: float
+    acres: float = Field(gt=0)
     crop: str = "soybean"
     trait_package: TraitPackage
     growth_stage: str
@@ -98,7 +98,10 @@ class ProductLimits(BaseModel):
     earliest_growth_stage: str | None = None
     latest_growth_stage: str | None = None
     # Where to start when the request names no rate
-    default_rate_fl_oz_per_acre: float | None = None
+    default_rate_fl_oz_per_acre: float | None = Field(
+        default=None,
+        gt=0,
+    )
     max_rate_fl_oz_per_acre: float | None = None
     max_seasonal_fl_oz_per_acre: float | None = None
     max_applications_per_season: int | None = None

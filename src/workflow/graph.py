@@ -153,10 +153,12 @@ Requirements:
 - Always require qualified human review.
 - Do not invent unsupported label requirements.
 - Cite the supplied evidence sources.
-- Use the requested rate when one was supplied unless previous review
-  feedback requires correction.
-- When no rate was requested, choose a rate within the structured
-  product limits.
+- Use the rate in request.requested_rate. Context gathering fills this
+  with the product default when the user does not supply a rate.
+- Use the acreage in request.acres. Context gathering fills this with
+  the field acreage when the user does not supply an acreage.
+- Do not replace either resolved value unless previous review feedback
+  explicitly requires a correction.
 - Address every previous critic revision instruction.
 
 REQUEST:
@@ -659,6 +661,45 @@ class AgriculturalWorkflow:
             assert field is not None
             assert product is not None
 
+            if request.acres is not None and request.acres > field.acres:
+                return {
+                    "missing_information": [
+                        (
+                            f"Requested acreage is {request.acres}, but "
+                            f"{field.name} contains {field.acres} acres."
+                        )
+                    ],
+                    "audit_log": [
+                        "Requested acreage exceeded the resolved field acreage."
+                    ],
+                }
+
+            effective_acres = (
+                request.acres if request.acres is not None else field.acres
+            )
+
+            effective_rate = (
+                request.requested_rate
+                if request.requested_rate is not None
+                else product.default_rate_fl_oz_per_acre
+            )
+
+            if effective_rate is None:
+                return {
+                    "missing_information": [f"An application rate for {product.name}"],
+                    "audit_log": [
+                        "No requested or default application rate was available."
+                    ],
+                }
+
+            resolved_request = request.model_copy(
+                update={
+                    "crop": request.crop or field.crop,
+                    "acres": effective_acres,
+                    "requested_rate": effective_rate,
+                }
+            )
+
             history = applications_for(
                 field.id,
                 season_year=proposed_date.year,
@@ -672,6 +713,7 @@ class AgriculturalWorkflow:
                 )
             except WeatherUnavailable as exc:
                 return {
+                    "request": resolved_request,
                     "missing_information": [
                         f"A forecast for {proposed_date}: {exc}",
                     ],
@@ -681,6 +723,7 @@ class AgriculturalWorkflow:
                 }
 
             return {
+                "request": resolved_request,
                 "field_record": field,
                 "product_record": product,
                 "application_history": history,

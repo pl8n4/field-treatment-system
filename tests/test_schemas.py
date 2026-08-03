@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
+from data_layer.schemas import FarmField, ProductLimits
 from workflow.schemas import TreatmentPlan, TreatmentRequest
 
 
@@ -38,3 +39,38 @@ def test_treatment_plan_rejects_nonpositive_values(
 
     with pytest.raises(ValidationError):
         TreatmentPlan.model_validate(plan_data)
+
+
+@pytest.mark.parametrize("invalid_value", [0, -1])
+def test_farm_field_rejects_nonpositive_acres(
+    invalid_value: float,
+) -> None:
+    field_data = {
+        "id": "F-01",
+        "name": "Test Field",
+        "acres": invalid_value,
+        "crop": "soybean",
+        "trait_package": "xtendflex",
+        "growth_stage": "V4",
+        "expected_harvest_date": date(2026, 10, 20),
+        "latitude": 39.2451,
+        "longitude": -92.3086,
+        "feet_to_sensitive_site": 1450,
+    }
+
+    with pytest.raises(ValidationError):
+        FarmField.model_validate(field_data)
+
+
+@pytest.mark.parametrize("invalid_value", [0, -1])
+def test_product_limits_rejects_nonpositive_default_rate(
+    invalid_value: float,
+) -> None:
+    product_data = {
+        "name": "Test Product",
+        "epa_reg_no": "00000-000",
+        "default_rate_fl_oz_per_acre": invalid_value,
+    }
+
+    with pytest.raises(ValidationError):
+        ProductLimits.model_validate(product_data)
