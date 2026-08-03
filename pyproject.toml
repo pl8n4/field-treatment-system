@@ -19,7 +19,7 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/graph.py" = [
+"src/workflow/graph.py" = [
     # Graph nodes intentionally catch unexpected integration and model
     # errors so the workflow can enter its controlled failure route.
     "BLE001",

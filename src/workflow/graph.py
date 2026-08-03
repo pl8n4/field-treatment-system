@@ -21,7 +21,7 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph, add_messages
 from langgraph.types import Command, interrupt
 
-from config import (
+from workflow.config import (
     GEMINI_MODEL,
     MODEL_MAX_TOKENS,
     MODEL_PROVIDER,
@@ -29,23 +29,66 @@ from config import (
     OLLAMA_MODEL,
     validate_settings,
 )
-from schemas import (
-    ApplicationRecord,
+from data_layer.records import (
+    applications_for,
+    find_field,
+    find_product,
+)
+from data_layer.retriever import search
+from data_layer.schemas import (
+    SOYBEAN_STAGES,
+    Application,
+    FarmField,
+    LabelChunk,
+    ProductLimits,
+    WeatherForecast,
+)
+from data_layer.weather import WeatherUnavailable, get_forecast
+from workflow.schemas import (
     CriticDecision,
-    EvidenceChunk,
-    FieldRecord,
     IntakeDecision,
-    ProductRecord,
     RuleCheck,
     RuleEngineResult,
     TreatmentPlan,
     TreatmentRequest,
-    WeatherForecast,
     WorkOrderResult,
 )
 
 MAX_REVISIONS = 1
 MAX_CONVERSATION_MESSAGES = 12
+
+# One query per restriction the rule engine checks. Retrieval is deterministic:
+# no LLM rewrites these, and each is filtered to the proposed product's label.
+EVIDENCE_QUERIES = (
+    "maximum application rate per acre and maximum per season",
+    "growth stage application timing window",
+    "wind speed restriction and downwind spray drift buffer",
+    "air temperature restriction and temperature inversion",
+    "restricted entry interval and pre-harvest interval",
+)
+
+
+def _stage_in_window(stage: str, product: ProductLimits) -> bool:
+    """
+    Whether a growth stage falls inside a label's application window.
+
+    Stages are ordered by SOYBEAN_STAGES, not alphabetically: "V4" < "R1" is
+    False as a string comparison even though V4 comes first in the season.
+    """
+    if stage not in SOYBEAN_STAGES:
+        return False
+
+    position = SOYBEAN_STAGES.index(stage)
+    earliest = product.earliest_growth_stage
+    latest = product.latest_growth_stage
+
+    if earliest and position < SOYBEAN_STAGES.index(earliest):
+        return False
+
+    if latest and position > SOYBEAN_STAGES.index(latest):
+        return False
+
+    return True
 
 INTAKE_PROMPT = ChatPromptTemplate.from_template("""
 You are the intake parser for an agricultural field-treatment
@@ -186,13 +229,13 @@ class AgriculturalState(TypedDict, total=False):
     intake: IntakeDecision
 
     # Gathered operational context
-    field_record: FieldRecord
-    product_record: ProductRecord
-    application_history: list[ApplicationRecord]
+    field_record: FarmField
+    product_record: ProductLimits
+    application_history: list[Application]
     weather: WeatherForecast
 
     # Retrieved knowledge
-    evidence: list[EvidenceChunk]
+    evidence: list[LabelChunk]
     context_sources: list[str]
 
     # Specialist and critic output
@@ -251,11 +294,11 @@ class AgriculturalWorkflow:
             allowed_msgpack_modules=[
                 TreatmentRequest,
                 IntakeDecision,
-                FieldRecord,
-                ProductRecord,
-                ApplicationRecord,
+                FarmField,
+                ProductLimits,
+                Application,
                 WeatherForecast,
-                EvidenceChunk,
+                LabelChunk,
                 TreatmentPlan,
                 RuleCheck,
                 RuleEngineResult,
@@ -337,6 +380,7 @@ class AgriculturalWorkflow:
             self._route_after_context,
             {
                 "retrieve": "retrieve",
+                "clarify": "clarify",
                 "failure": "failure",
             },
         )
@@ -558,19 +602,18 @@ class AgriculturalWorkflow:
             "audit_log": ["Workflow paused for user information."],
         }
 
-    # TODO: Replace mock integration with real integration
     @staticmethod
     def _gather_context_node(
         state: AgriculturalState,
     ) -> dict:
         """
-        MOCK INTEGRATION POINT
+        Load the field, product limits, spray history, and forecast that the
+        specialist and the rule engine reason over.
 
-        Replace this body with:
-        - field lookup
-        - product lookup
-        - application-history lookup
-        - weather lookup
+        A lookup that cannot be resolved is reported as missing information
+        rather than an error: find_field and find_product return None both when
+        nothing matches and when the text matches more than one record, and
+        either way the answer is to ask the user which one they meant.
         """
 
         try:
@@ -582,59 +625,51 @@ class AgriculturalWorkflow:
                 else date.today()
             )
 
-            field = FieldRecord(
-                field_id=request.field_id or "UNKNOWN",
-                crop=request.crop or "soybeans",
-                acres=request.acres or 80,
-                trait_package="Example Trait",
-                growth_stage="R2",
-                expected_harvest_date=(date.today() + timedelta(days=60)),
-                latitude=41.6,
-                longitude=-93.6,
-                sensitive_site_distance_feet=300,
-            )
+            missing: list[str] = []
 
-            product = ProductRecord(
-                product_name=(request.proposed_product or "Example Product"),
-                supported_crops=[
-                    "soybeans",
-                ],
-                compatible_traits=[
-                    "Example Trait",
-                ],
-                allowed_growth_stages=[
-                    "V6",
-                    "R1",
-                    "R2",
-                ],
-                minimum_rate=10,
-                maximum_rate=20,
-                seasonal_maximum_rate=40,
-                maximum_wind_mph=15,
-                maximum_temperature_f=90,
-                required_buffer_feet=110,
-                rei_hours=24,
-                phi_days=30,
-            )
-
-            history = [
-                ApplicationRecord(
-                    field_id=field.field_id,
-                    product_name=product.product_name,
-                    application_date=(date.today() - timedelta(days=30)),
-                    rate=10,
+            field = find_field(request.field_id or "")
+            if field is None:
+                missing.append(
+                    f"A field matching {request.field_id or '(none given)'!r} — "
+                    "no field has that name or id, or the text matches several."
                 )
-            ]
 
-            weather = WeatherForecast(
-                forecast_date=proposed_date,
-                high_temperature_f=82,
-                wind_speed_mph=8,
-                wind_direction="NW",
-                precipitation_probability=20,
-                source="Mock Open-Meteo response",
-                cached=True,
+            product = find_product(request.proposed_product or "")
+            if product is None:
+                missing.append(
+                    f"A product matching "
+                    f"{request.proposed_product or '(none given)'!r} — "
+                    "no label has that name, or the text matches several."
+                )
+
+            if missing:
+                return {
+                    "missing_information": missing,
+                    "audit_log": [
+                        "Context lookup could not resolve the field or product."
+                    ],
+                }
+
+            history = applications_for(
+                field.id,
+                season_year=proposed_date.year,
             )
+
+            try:
+                weather = get_forecast(
+                    field.latitude,
+                    field.longitude,
+                    proposed_date,
+                )
+            except WeatherUnavailable as exc:
+                return {
+                    "missing_information": [
+                        f"A forecast for {proposed_date}: {exc}",
+                    ],
+                    "audit_log": [
+                        f"Weather unavailable for {proposed_date}.",
+                    ],
+                }
 
             return {
                 "field_record": field,
@@ -643,7 +678,10 @@ class AgriculturalWorkflow:
                 "weather": weather,
                 "error": None,
                 "audit_log": [
-                    "Mock field, product, application-history, and weather context loaded."
+                    f"Loaded {field.name} ({field.id}, {field.trait_package.value}, "
+                    f"{field.growth_stage}), {product.name}, "
+                    f"{len(history)} prior application(s) in {proposed_date.year}, "
+                    f"and the {proposed_date} forecast."
                 ],
             }
 
@@ -658,34 +696,31 @@ class AgriculturalWorkflow:
         state: AgriculturalState,
     ) -> dict:
         """
-        MOCK INTEGRATION POINT
+        Pull label text for the proposed product out of the Chroma store.
 
-        Replace this body with the Chroma retriever.
+        One query per restriction the rule engine checks, so the specialist has
+        something to cite for each of them. The product metadata filter keeps
+        the search inside this product's label instead of all five.
         """
 
         try:
             product = state["product_record"]
+            request = state["request"]
 
-            evidence = [
-                EvidenceChunk(
-                    content=(
-                        "Mock label evidence: application must remain within the structured product rate limits."
-                    ),
-                    source="mock_product_label.pdf",
-                    page=4,
-                    product_name=product.product_name,
-                    registration_number="00000-000",
-                ),
-                EvidenceChunk(
-                    content=(
-                        "Mock label evidence: observe the required buffer, REI, PHI, wind, and temperature limits."
-                    ),
-                    source="mock_product_label.pdf",
-                    page=7,
-                    product_name=product.product_name,
-                    registration_number="00000-000",
-                ),
-            ]
+            queries = list(EVIDENCE_QUERIES)
+            if request.observed_issue:
+                queries.insert(0, f"control of {request.observed_issue}")
+
+            evidence: list[LabelChunk] = []
+            seen: set[tuple[str, int, str]] = set()
+
+            for query in queries:
+                for chunk in search(query, product=product.name, k=2):
+                    key = (chunk.epa_reg_no, chunk.page, chunk.text[:80])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    evidence.append(chunk)
 
             sources = sorted({chunk.source for chunk in evidence})
 
@@ -693,11 +728,12 @@ class AgriculturalWorkflow:
                 "evidence": evidence,
                 "context_sources": sources,
                 "missing_information": (
-                    [] if evidence else ["Applicable product-label evidence"]
+                    [] if evidence else [f"Label evidence for {product.name}"]
                 ),
                 "error": None,
                 "audit_log": [
-                    f"Mock retrieval return {len(evidence)} chunks from {len(sources)} sources."
+                    f"Retrieved {len(evidence)} label chunks for {product.name} "
+                    f"from {len(sources)} source(s) over {len(queries)} queries."
                 ],
             }
 
@@ -760,9 +796,11 @@ class AgriculturalWorkflow:
         state: AgriculturalState,
     ) -> dict:
         """
-        MOCK INTEGRATION POINT
+        Deterministic compliance checks. No LLM is involved.
 
-        Replace this implementation with the team's final rule engine.
+        Every limit on ProductLimits is optional, where None means the label
+        sets no such restriction. Those are recorded as informational passes
+        rather than dropped, so the trace shows the rule was considered.
         """
 
         try:
@@ -771,109 +809,153 @@ class AgriculturalWorkflow:
             field = state["field_record"]
             weather = state["weather"]
 
-            prior_product_rate = sum(
-                record.rate
-                for record in state["application_history"]
-                if (record.product_name.lower() == product.product_name.lower())
-            )
+            def rule(rule_name, limit, passed, severity, explanation):
+                """One check. `passed` and `explanation` are deferred so they
+                are never evaluated against a None limit."""
+                if limit is None:
+                    return RuleCheck(
+                        rule_name=rule_name,
+                        passed=True,
+                        severity="informational",
+                        explanation="The label sets no such restriction.",
+                    )
 
-            phi_deadline = plan.treatment_date + timedelta(days=product.phi_days)
+                return RuleCheck(
+                    rule_name=rule_name,
+                    passed=passed(),
+                    severity=severity,
+                    explanation=explanation(),
+                )
+
+            same_product = [
+                record
+                for record in state["application_history"]
+                if record.product.lower() == product.name.lower()
+            ]
+            prior_rate = sum(record.rate_fl_oz_per_acre for record in same_product)
+            season_total = prior_rate + plan.proposed_rate
 
             checks = [
-                RuleCheck(
-                    rule_name="maximum_rate",
-                    passed=(plan.proposed_rate <= product.maximum_rate),
-                    severity="fixable",
-                    explanation=(
-                        f"Plan rate is {plan.proposed_rate}; "
-                        f"maximum is {product.maximum_rate}."
+                rule(
+                    "maximum_rate",
+                    product.max_rate_fl_oz_per_acre,
+                    lambda: plan.proposed_rate <= product.max_rate_fl_oz_per_acre,
+                    "fixable",
+                    lambda: (
+                        f"Plan rate is {plan.proposed_rate} fl oz/acre; "
+                        f"label maximum is {product.max_rate_fl_oz_per_acre}."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="seasonal_maximum_rate",
-                    passed=(
-                        prior_product_rate + plan.proposed_rate
-                        <= product.seasonal_maximum_rate
-                    ),
-                    severity="fixable",
-                    explanation=(
-                        "Seasonal total would be "
-                        f"{prior_product_rate + plan.proposed_rate}; "
-                        f"maximum is {product.seasonal_maximum_rate}."
+                rule(
+                    "seasonal_maximum_rate",
+                    product.max_seasonal_fl_oz_per_acre,
+                    lambda: season_total <= product.max_seasonal_fl_oz_per_acre,
+                    "fixable",
+                    lambda: (
+                        f"{prior_rate} fl oz/acre already applied this season, "
+                        f"so the total would be {season_total}; label maximum "
+                        f"is {product.max_seasonal_fl_oz_per_acre}."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="crop_compatibility",
-                    passed=(field.crop in product.supported_crops),
-                    severity="hard_violation",
-                    explanation=(
-                        f"Field crop is {field.crop}; supported crops "
-                        f"are {', '.join(product.supported_crops)}."
+                rule(
+                    "applications_per_season",
+                    product.max_applications_per_season,
+                    lambda: (
+                        len(same_product) + 1 <= product.max_applications_per_season
+                    ),
+                    "hard_violation",
+                    lambda: (
+                        f"This would be application {len(same_product) + 1}; "
+                        f"the label allows {product.max_applications_per_season} "
+                        "per season."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="trait_compatibility",
-                    passed=(field.trait_package in product.compatible_traits),
-                    severity="hard_violation",
-                    explanation=(
-                        f"Field trait is {field.trait_package}; "
-                        "compatible traits are "
-                        f"{', '.join(product.compatible_traits)}."
+                rule(
+                    "trait_compatibility",
+                    product.allowed_traits,
+                    lambda: field.trait_package in product.allowed_traits,
+                    "hard_violation",
+                    lambda: (
+                        f"Field is {field.trait_package.value}; the label allows "
+                        f"{', '.join(t.value for t in product.allowed_traits)}."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="growth_stage",
-                    passed=(field.growth_stage in product.allowed_growth_stages),
-                    severity="hard_violation",
-                    explanation=(
-                        f"Growth stage is {field.growth_stage}; "
-                        "allowed stages are "
-                        f"{', '.join(product.allowed_growth_stages)}."
+                rule(
+                    "growth_stage_window",
+                    product.earliest_growth_stage or product.latest_growth_stage,
+                    lambda: _stage_in_window(field.growth_stage, product),
+                    "hard_violation",
+                    lambda: (
+                        f"Field is at {field.growth_stage}; the label window is "
+                        f"{product.earliest_growth_stage or 'any'} to "
+                        f"{product.latest_growth_stage or 'any'}."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="wind",
-                    passed=(weather.wind_speed_mph <= product.maximum_wind_mph),
-                    severity="fixable",
-                    explanation=(
+                rule(
+                    "wind_maximum",
+                    product.wind_max_mph,
+                    lambda: weather.wind_speed_mph <= product.wind_max_mph,
+                    "fixable",
+                    lambda: (
                         f"Forecast wind is {weather.wind_speed_mph} mph; "
-                        f"maximum is {product.maximum_wind_mph} mph."
+                        f"label maximum is {product.wind_max_mph} mph."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="temperature",
-                    passed=(
-                        weather.high_temperature_f <= product.maximum_temperature_f
-                    ),
-                    severity="fixable",
-                    explanation=(
-                        "Forecast high is "
-                        f"{weather.high_temperature_f} F; "
-                        "maximum is "
-                        f"{product.maximum_temperature_f} F."
+                rule(
+                    "wind_minimum",
+                    product.wind_min_mph,
+                    lambda: weather.wind_speed_mph >= product.wind_min_mph,
+                    "fixable",
+                    lambda: (
+                        f"Forecast wind is {weather.wind_speed_mph} mph; "
+                        f"the label requires at least {product.wind_min_mph} mph."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="buffer",
-                    passed=(
-                        field.sensitive_site_distance_feet
-                        >= product.required_buffer_feet
-                    ),
-                    severity="hard_violation",
-                    explanation=(
-                        "Sensitive-site distance is "
-                        f"{field.sensitive_site_distance_feet} feet; "
-                        "required buffer is "
-                        f"{product.required_buffer_feet} feet."
+                rule(
+                    "temperature",
+                    product.max_temp_f,
+                    lambda: weather.high_temp_f <= product.max_temp_f,
+                    "fixable",
+                    lambda: (
+                        f"Forecast high is {weather.high_temp_f} F; "
+                        f"label maximum is {product.max_temp_f} F."
                     ),
                 ),
-                RuleCheck(
-                    rule_name="phi_before_harvest",
-                    passed=(phi_deadline <= field.expected_harvest_date),
-                    severity="hard_violation",
-                    explanation=(
-                        f"PHI ends on {phi_deadline}; expected harvest "
-                        f"is {field.expected_harvest_date}."
+                rule(
+                    "downwind_buffer",
+                    product.downwind_buffer_ft,
+                    lambda: (
+                        field.feet_to_sensitive_site >= product.downwind_buffer_ft
+                    ),
+                    "hard_violation",
+                    lambda: (
+                        f"Nearest sensitive site is "
+                        f"{field.feet_to_sensitive_site} ft; the label requires "
+                        f"{product.downwind_buffer_ft} ft."
+                    ),
+                ),
+                rule(
+                    "phi_before_harvest",
+                    product.phi_days,
+                    lambda: (
+                        plan.treatment_date + timedelta(days=product.phi_days)
+                        <= field.expected_harvest_date
+                    ),
+                    "hard_violation",
+                    lambda: (
+                        "Pre-harvest interval ends on "
+                        f"{plan.treatment_date + timedelta(days=product.phi_days)}; "
+                        f"expected harvest is {field.expected_harvest_date}."
+                    ),
+                ),
+                rule(
+                    "restricted_entry_interval",
+                    product.rei_hours,
+                    lambda: True,  # recorded for the work order, never a blocker
+                    "informational",
+                    lambda: (
+                        f"Workers may re-enter {product.rei_hours} hours after "
+                        f"application, from {plan.treatment_date}."
                     ),
                 ),
             ]
@@ -1137,10 +1219,16 @@ class AgriculturalWorkflow:
         state: AgriculturalState,
     ) -> Literal[
         "retrieve",
+        "clarify",
         "failure",
     ]:
         if state.get("error"):
             return "failure"
+
+        # An unresolved field or product, or a forecast the API cannot supply,
+        # is a question for the user rather than a workflow failure.
+        if state.get("missing_information"):
+            return "clarify"
 
         return "retrieve"
 

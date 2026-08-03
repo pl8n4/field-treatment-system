@@ -3,6 +3,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Farm records, label evidence, and weather live in data_layer.schemas:
+# FarmField, ProductLimits, Application, LabelChunk, WeatherForecast.
+# This module holds only the schemas the workflow itself owns.
+
 # INTAKE
 
 
@@ -66,73 +70,6 @@ class IntakeDecision(BaseModel):
     system_fillable_information: list[str] = Field(default_factory=list)
 
     routing_reason: str
-
-
-# FARM AND WEATHER DATA
-
-
-class FieldRecord(BaseModel):
-    field_id: str
-    crop: str
-    acres: float
-    trait_package: str
-    growth_stage: str
-    expected_harvest_date: date
-
-    latitude: float
-    longitude: float
-    sensitive_site_distance_feet: float
-
-
-class ProductRecord(BaseModel):
-    product_name: str
-    supported_crops: list[str]
-    compatible_traits: list[str]
-    allowed_growth_stages: list[str]
-
-    minimum_rate: float
-    maximum_rate: float
-    seasonal_maximum_rate: float
-
-    maximum_wind_mph: float
-    maximum_temperature_f: float
-    required_buffer_feet: float
-
-    # Restricted Entry Interval
-    rei_hours: int
-    # Pre Harvest Interval
-    phi_days: int
-
-
-class ApplicationRecord(BaseModel):
-    field_id: str
-    product_name: str
-    application_date: date
-    rate: float
-
-
-class WeatherForecast(BaseModel):
-    forecast_date: date
-
-    high_temperature_f: float
-    wind_speed_mph: float
-    wind_direction: str
-    precipitation_probability: float
-
-    source: str
-    cached: bool = False
-
-
-# RETRIEVAL
-
-
-class EvidenceChunk(BaseModel):
-    content: str
-    source: str
-
-    page: int | None = None
-    product_name: str | None = None
-    registration_number: str | None = None
 
 
 # SPECIALIST
