@@ -1,3 +1,10 @@
+"""Build the vector store and perform semantic search on it.
+
+Results are re-ranked with maximal marginal relevance (MMR).
+
+Run `python -m data_layer.retriever` to force a rebuild after changing data/labels/.
+"""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -9,13 +16,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from data_layer.corpus import load_chunks
 from data_layer.records import DATA_DIR
 from data_layer.schemas import LabelChunk
-
-"""
-Build the vector store and perform semantic search on it.
-Results are re-ranked with maximal marginal relevance (MMR).
-
-Run `python -m data_layer.retriever` to force a rebuild after changing data/labels/.
-"""
 
 CHROMA_DIR = DATA_DIR / "chroma"
 COLLECTION_NAME = "labels"

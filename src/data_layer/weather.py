@@ -1,14 +1,16 @@
-from __future__ import annotations
-
-from datetime import date
-import requests
-from data_layer.schemas import WeatherForecast
-
 """Open-Meteo forecast lookup. No API key, no signup.
 
 Label rules are written directly against forecast values, so this output
 becomes part of the compliance record.
 """
+
+from __future__ import annotations
+
+from datetime import date
+
+import requests
+
+from data_layer.schemas import WeatherForecast
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT_SECONDS = 10
@@ -30,6 +32,12 @@ def get_forecast(latitude: float, longitude: float, target_date: date) -> Weathe
     Raises WeatherUnavailable on network failure, an error response, or a date
     outside the forecast horizon.
     """
+    if (target_date - date.today()).days > FORECAST_HORIZON_DAYS:
+        raise WeatherUnavailable(
+            f"No forecast for {target_date}; Open-Meteo covers about "
+            f"{FORECAST_HORIZON_DAYS} days ahead."
+        )
+
     params = {
         "latitude": latitude,
         "longitude": longitude,

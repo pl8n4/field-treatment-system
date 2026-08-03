@@ -1,3 +1,11 @@
+"""Reads each EPA-stamped PDF ({company}-{product}-{date}.pdf) in data/labels/,
+cleans the extracted text, and splits it into overlapping chunks carrying their
+corresponding product, registration number, and page.
+
+Chunks overlap because label restrictions are the sentences most likely to
+straddle a boundary, and half a restriction retrieves as a complete one.
+"""
+
 from __future__ import annotations
 
 import re
@@ -7,15 +15,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
 from data_layer.records import DATA_DIR, list_products
-
-"""
-Reads each EPA-stamped PDF ({company}-{product}-{date}.pdf) in data/labels/,
-cleans the extracted text, and splits it into overlapping chunks carrying their
-corresponding product, registration number, and page.
-
-Chunks overlap because label restrictions are the sentences most likely to
-straddle a boundary, and half a restriction retrieves as a complete one.
-"""
 
 LABELS_DIR = DATA_DIR / "labels"
 
@@ -29,12 +28,15 @@ def clean_page_text(text: str) -> str:
     breaks, and the ragged whitespace of a two-column label layout.
     """
     text = text.replace("\x00", " ")
-    # Rejoin a word split across lines by a hyphen: "applica-\ntion" -> "application"
-    text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
-    # Collapse line breaks and runs of whitespace into single spaces
-    text = re.sub(r"\s*\n\s*", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    # Rejoin a word split across one line break: "applica-\ntion" -> "application"
+    text = re.sub(r"(?<=\w)-[ \t]*\n[ \t]*(?=\w)", "", text)
+    # Preserve blank-line-separated paragraphs while normalizing each paragraph.
+    paragraphs = re.split(r"\n[ \t\r\f\v]*\n(?:[ \t\r\f\v]*\n)*", text)
+    return "\n\n".join(
+        normalized
+        for paragraph in paragraphs
+        if (normalized := re.sub(r"\s+", " ", paragraph).strip())
+    )
 
 
 def load_documents() -> list[Document]:
@@ -70,8 +72,12 @@ def split_documents(documents: list[Document]) -> list[Document]:
         chunk_overlap=CHUNK_OVERLAP,
         length_function=len,
         separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""],
+        keep_separator="end",
     )
-    return splitter.split_documents(documents)
+    chunks = splitter.split_documents(documents)
+    for chunk in chunks:
+        chunk.page_content = chunk.page_content.lstrip(" \t\r\n.?!")
+    return chunks
 
 
 def load_chunks() -> list[Document]:
