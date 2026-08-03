@@ -15,7 +15,20 @@ from data_layer.schemas import (  # noqa: E402
     TraitPackage,
     WeatherForecast,
 )
-from workflow.schemas import TreatmentPlan  # noqa: E402
+from workflow.schemas import TreatmentPlan, TreatmentRequest  # noqa: E402
+
+
+@pytest.fixture
+def treatment_request() -> TreatmentRequest:
+    return TreatmentRequest(
+        field_id="F-01",
+        crop="soybean",
+        observed_issue="fungal disease",
+        proposed_product="Example Product",
+        proposed_date="2026-08-02",
+        acres=80,
+        requested_rate=10,
+    )
 
 
 @pytest.fixture
