@@ -24,7 +24,8 @@ LangGraph coordinates this sequence and maintains the shared state.
 
 ## Shared schemas
 
-The current integration models are located in `src/schemas.py`.
+The workflow models are located in `src/workflow/schemas.py`. Farm, product,
+weather, and retrieval models are located in `src/data_layer/schemas.py`.
 
 These models are the proposed interfaces between our workstreams. They can be changed if a teammate identifies missing fields or a difficult assumption, but changes should be discussed so downstream code stays synchronized.
 
