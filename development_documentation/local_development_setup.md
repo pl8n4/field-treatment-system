@@ -110,19 +110,22 @@ python -m pip install -r dev-requirements.txt
 Run the current checks:
 
 ```bash
-black --check src
-ruff check src
+black --check src tests
+ruff check src tests
 mypy src
+pytest
 ```
 
 Apply formatting and safe lint fixes:
 
 ```bash
-black src
-ruff check --fix src
+black src tests
+ruff check --fix src tests
 ```
 
-Pytest tooling is installed for future tests; the repository does not currently contain a required unit-test suite.
+The automated suite includes unit and provider-independent workflow integration
+tests. See `manual_workflow_testing.md` for live CLI scenarios using the seeded
+records, configured model, label retrieval, and weather service.
 
 ## Optional pre-commit hook
 
@@ -188,5 +191,6 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 - `development_documentation/langgraph_documentation.md`
 - `development_documentation/langgraph_integration_guide.md`
+- `development_documentation/manual_workflow_testing.md`
 - `development_documentation/system-spec.md`
 - `development_documentation/project-requirements.md`
