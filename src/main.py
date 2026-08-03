@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from graph import AgriculturalWorkflow
+from workflow.graph import AgriculturalWorkflow
 
 
 def print_trace(state: dict) -> None:

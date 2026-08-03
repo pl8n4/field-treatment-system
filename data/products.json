@@ -2,24 +2,39 @@
   {
     "name": "Paraquat 43.2% SL",
     "epa_reg_no": "85678-58",
-    "allowed_traits": [
-      "conventional",
-      "roundup_ready_2_xtend",
-      "xtendflex",
-      "enlist_e3",
-      "libertylink"
+    "supported_crops": [
+      "corn",
+      "sweet corn",
+      "cotton",
+      "peanut",
+      "potato",
+      "rice",
+      "safflower",
+      "sorghum",
+      "soybean",
+      "sugar beet",
+      "sugarcane",
+      "sunflower",
+      "wheat"
     ],
+    "allowed_traits": null,
     "earliest_growth_stage": "R7",
     "latest_growth_stage": "R8",
     "max_rate_fl_oz_per_acre": 10.7,
     "max_seasonal_fl_oz_per_acre": 10.7,
     "max_applications_per_season": 1,
+    "rei_hours": 48,
     "phi_days": 15,
     "wind_max_mph": 10.0
   },
   {
     "name": "Enlist One",
     "epa_reg_no": "62719-695",
+    "supported_crops": [
+      "corn",
+      "cotton",
+      "soybean"
+    ],
     "allowed_traits": [
       "enlist_e3"
     ],
@@ -28,6 +43,7 @@
     "max_rate_fl_oz_per_acre": 32.0,
     "max_seasonal_fl_oz_per_acre": 96.0,
     "max_applications_per_season": 2,
+    "rei_hours": 48,
     "phi_days": 50,
     "wind_max_mph": 15.0,
     "downwind_buffer_ft": 30
@@ -35,6 +51,13 @@
   {
     "name": "Liberty ULTRA",
     "epa_reg_no": "7969-500",
+    "supported_crops": [
+      "canola",
+      "corn",
+      "sweet corn",
+      "cotton",
+      "soybean"
+    ],
     "allowed_traits": [
       "libertylink",
       "enlist_e3",
@@ -45,6 +68,7 @@
     "max_rate_fl_oz_per_acre": 34.0,
     "max_seasonal_fl_oz_per_acre": 69.0,
     "max_applications_per_season": 2,
+    "rei_hours": 12,
     "phi_days": 70,
     "wind_min_mph": 3.0,
     "wind_max_mph": 15.0,
@@ -53,6 +77,17 @@
   {
     "name": "Roundup PowerMax 3",
     "epa_reg_no": "524-659",
+    "supported_crops": [
+      "alfalfa",
+      "canola",
+      "corn",
+      "sweet corn",
+      "cotton",
+      "sorghum",
+      "soybean",
+      "sugarbeet",
+      "sugarcane"
+    ],
     "allowed_traits": [
       "roundup_ready_2_xtend",
       "xtendflex",
@@ -62,22 +97,24 @@
     "latest_growth_stage": "R2",
     "max_rate_fl_oz_per_acre": 40.0,
     "max_seasonal_fl_oz_per_acre": 60.0,
+    "rei_hours": 4,
     "phi_days": 14,
     "wind_min_mph": 2.0
   },
   {
     "name": "Delaro Complete",
     "epa_reg_no": "264-1207",
-    "allowed_traits": [
-      "conventional",
-      "roundup_ready_2_xtend",
-      "xtendflex",
-      "enlist_e3",
-      "libertylink"
+    "supported_crops": [
+      "corn",
+      "sweet corn",
+      "soybean",
+      "wheat"
     ],
+    "allowed_traits": null,
     "max_rate_fl_oz_per_acre": 11.0,
     "max_seasonal_fl_oz_per_acre": 33.0,
     "max_applications_per_season": 3,
+    "rei_hours": 12,
     "phi_days": 21,
     "wind_max_mph": 15.0
   }
