@@ -9,10 +9,26 @@ from pydantic import BaseModel
 
 # Soybean growth stages in label order
 SOYBEAN_STAGES = (
-    "VE", "VC",
-    "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8",
-    "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8",
+    "VE",
+    "VC",
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7",
+    "V8",
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R7",
+    "R8",
 )
+
 
 class TraitPackage(str, Enum):
     """Herbicide-tolerance trait stack a field is planted to.
