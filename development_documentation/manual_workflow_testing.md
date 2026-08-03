@@ -72,6 +72,40 @@ treated_acres: 80
 If the plan changes one of those values, the corresponding deterministic
 identity or request-consistency rule should fail and request a revision.
 
+## Fallback acreage and rate
+
+Start a fresh CLI session and omit acreage and rate:
+
+```text
+Field F-02 has weeds. Apply Enlist One on <TEST_DATE>.
+```
+
+Expected behavior:
+
+- Context gathering resolves acreage from F-02's `FarmField.acres` value of
+  `96.5`.
+- Context gathering resolves rate from Enlist One's
+  `default_rate_fl_oz_per_acre` value of `32.0`.
+- The resolved values are written into the structured request before the
+  Specialist runs.
+- The plan preserves `treated_acres=96.5` and `proposed_rate=32.0`.
+- The `requested_acres` and `requested_rate` consistency checks pass.
+
+## Field acreage validation
+
+Start a fresh CLI session and request more than F-02's 96.5 acres:
+
+```text
+Field F-02 has weeds. Apply Enlist One on <TEST_DATE> at 32 fluid ounces per acre across 100 acres.
+```
+
+Expected behavior:
+
+- Final status is `needs_information`.
+- The message reports both the requested 100 acres and the field's 96.5 acres.
+- Retrieval and specialist planning do not run.
+- No plan or work order is created for the oversized request.
+
 ## 2. Human rejection
 
 Run the compliant F-02 request again. At the human-review prompt, enter:
@@ -226,7 +260,7 @@ Human review or another terminal route
 Also verify:
 
 - The field and product match the request.
-- The treatment date, requested rate, and acreage are preserved.
+- The treatment date and resolved rate and acreage are preserved.
 - Product evidence comes from the selected product's PDF.
 - REI means restricted-entry interval.
 - PHI means pre-harvest interval and is calculated against expected harvest.

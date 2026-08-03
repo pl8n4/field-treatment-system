@@ -205,17 +205,29 @@ proposed_product
 proposed_date
 ```
 
-The application records currently fill:
+Context gathering can resolve:
 
 ```text
 crop
+acres
+requested_rate
 ```
 
-`acres` and `requested_rate` are optional inputs, but the current field records
-do not contain acreage and the product records do not define a default rate.
-Until those policies are decided, downstream code should not assume that the
-tools can supply either value. When present, both values must be greater than
-zero.
+The precedence rules are:
+
+```text
+User acreage -> FarmField.acres fallback
+User rate -> ProductLimits.default_rate_fl_oz_per_acre fallback
+```
+
+Context gathering writes these resolved values back into `TreatmentRequest`
+before retrieval and specialist planning. Both values must be greater than
+zero. User-supplied acreage may describe a partial-field treatment, but it may
+not exceed the resolved field's acreage. An oversized request routes to
+clarification before a plan is drafted.
+
+If neither the user nor the product record supplies a rate, the workflow also
+routes to clarification rather than allowing the Specialist to invent one.
 
 ### Expected context results
 
@@ -338,8 +350,8 @@ Specialist drafts a plan and checks 16 conditions:
 field identity
 product identity
 requested treatment date
-requested rate, when supplied
-requested acreage, when supplied
+resolved requested or default rate
+resolved requested or field acreage
 maximum individual application rate
 seasonal cumulative rate
 maximum applications per season
