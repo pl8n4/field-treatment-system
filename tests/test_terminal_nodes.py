@@ -1,6 +1,6 @@
 import re
 
-from graph import AgriculturalWorkflow
+from workflow.graph import AgriculturalWorkflow
 
 
 def test_work_order_node_creates_simulated_result() -> None:

@@ -1,9 +1,9 @@
 from typing import Any
 
-from graph import AgriculturalWorkflow
-from schemas import (
+from data_layer.schemas import LabelChunk
+from workflow.graph import AgriculturalWorkflow
+from workflow.schemas import (
     CriticDecision,
-    EvidenceChunk,
     RuleCheck,
     RuleEngineResult,
     TreatmentPlan,
@@ -30,7 +30,7 @@ def workflow_with_review(
 
 def critic_state(
     treatment_plan: TreatmentPlan,
-    evidence: list[EvidenceChunk],
+    evidence: list[LabelChunk],
     checks: list[RuleCheck],
     revision_count: int = 0,
 ) -> dict:
@@ -47,7 +47,7 @@ def critic_state(
 
 def test_critic_replaces_false_hard_violation_when_rules_pass(
     treatment_plan: TreatmentPlan,
-    evidence: list[EvidenceChunk],
+    evidence: list[LabelChunk],
 ) -> None:
     workflow = workflow_with_review(
         CriticDecision(
@@ -77,7 +77,7 @@ def test_critic_replaces_false_hard_violation_when_rules_pass(
 
 def test_critic_replaces_clean_verdict_when_hard_rule_fails(
     treatment_plan: TreatmentPlan,
-    evidence: list[EvidenceChunk],
+    evidence: list[LabelChunk],
 ) -> None:
     workflow = workflow_with_review(
         CriticDecision(
@@ -106,7 +106,7 @@ def test_critic_replaces_clean_verdict_when_hard_rule_fails(
 
 def test_critic_replaces_clean_verdict_when_fixable_rule_fails(
     treatment_plan: TreatmentPlan,
-    evidence: list[EvidenceChunk],
+    evidence: list[LabelChunk],
 ) -> None:
     workflow = workflow_with_review(
         CriticDecision(
@@ -136,7 +136,7 @@ def test_critic_replaces_clean_verdict_when_fixable_rule_fails(
 
 def test_critic_converts_chain_exception_to_controlled_failure(
     treatment_plan: TreatmentPlan,
-    evidence: list[EvidenceChunk],
+    evidence: list[LabelChunk],
 ) -> None:
     workflow = workflow_with_review(RuntimeError("model unavailable"))
     state = critic_state(treatment_plan, evidence, [])

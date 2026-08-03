@@ -1,7 +1,8 @@
 import pytest
 
-from graph import AgriculturalWorkflow
-from schemas import CriticDecision, EvidenceChunk, RuleCheck, RuleEngineResult
+from data_layer.schemas import LabelChunk
+from workflow.graph import AgriculturalWorkflow
+from workflow.schemas import CriticDecision, RuleCheck, RuleEngineResult
 
 
 @pytest.mark.parametrize(
@@ -22,7 +23,17 @@ def test_route_after_intake(state: dict, expected_route: str) -> None:
         ({"error": "retrieval failed"}, "failure"),
         ({"evidence": []}, "clarify"),
         (
-            {"evidence": [EvidenceChunk(content="Evidence", source="label.pdf")]},
+            {
+                "evidence": [
+                    LabelChunk(
+                        text="Evidence",
+                        source="label.pdf",
+                        page=1,
+                        product="Example Product",
+                        epa_reg_no="00000-000",
+                    )
+                ]
+            },
             "specialist",
         ),
     ],

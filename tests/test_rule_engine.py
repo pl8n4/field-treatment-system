@@ -1,11 +1,6 @@
-from graph import AgriculturalWorkflow
-from schemas import (
-    ApplicationRecord,
-    FieldRecord,
-    ProductRecord,
-    TreatmentPlan,
-    WeatherForecast,
-)
+from data_layer.schemas import Application, FarmField, ProductLimits, WeatherForecast
+from workflow.graph import AgriculturalWorkflow
+from workflow.schemas import TreatmentPlan
 
 
 def checks_by_name(update: dict) -> dict:
@@ -14,9 +9,9 @@ def checks_by_name(update: dict) -> dict:
 
 def build_state(
     treatment_plan: TreatmentPlan,
-    field_record: FieldRecord,
-    product_record: ProductRecord,
-    application_history: list[ApplicationRecord],
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
     weather: WeatherForecast,
 ) -> dict:
     return {
@@ -30,9 +25,9 @@ def build_state(
 
 def test_rule_engine_passes_compliant_plan(
     treatment_plan: TreatmentPlan,
-    field_record: FieldRecord,
-    product_record: ProductRecord,
-    application_history: list[ApplicationRecord],
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
     weather: WeatherForecast,
 ) -> None:
     update = AgriculturalWorkflow._rule_engine_node(
@@ -47,16 +42,16 @@ def test_rule_engine_passes_compliant_plan(
 
     result = update["rule_result"]
     assert result.all_passed is True
-    assert len(result.checks) == 9
+    assert len(result.checks) == 11
     assert all(check.passed for check in result.checks)
-    assert update["audit_log"] == ["Rule engine completed: 9/9 checks passed."]
+    assert update["audit_log"] == ["Rule engine completed: 11/11 checks passed."]
 
 
 def test_rule_engine_detects_fixable_rate_failures(
     treatment_plan: TreatmentPlan,
-    field_record: FieldRecord,
-    product_record: ProductRecord,
-    application_history: list[ApplicationRecord],
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
     weather: WeatherForecast,
 ) -> None:
     excessive_rate_plan = treatment_plan.model_copy(update={"proposed_rate": 35})
@@ -80,17 +75,18 @@ def test_rule_engine_detects_fixable_rate_failures(
 
 def test_rule_engine_counts_only_matching_product_history(
     treatment_plan: TreatmentPlan,
-    field_record: FieldRecord,
-    product_record: ProductRecord,
-    application_history: list[ApplicationRecord],
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
     weather: WeatherForecast,
 ) -> None:
     application_history.append(
-        ApplicationRecord(
-            field_id="F001",
-            product_name="Different Product",
-            application_date=treatment_plan.treatment_date,
-            rate=100,
+        Application(
+            id="A-002",
+            field_id="F-01",
+            product="Different Product",
+            applied_on=treatment_plan.treatment_date,
+            rate_fl_oz_per_acre=100,
         )
     )
     plan = treatment_plan.model_copy(update={"proposed_rate": 20})
@@ -110,9 +106,9 @@ def test_rule_engine_counts_only_matching_product_history(
 
 def test_rule_engine_detects_hard_crop_violation(
     treatment_plan: TreatmentPlan,
-    field_record: FieldRecord,
-    product_record: ProductRecord,
-    application_history: list[ApplicationRecord],
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
     weather: WeatherForecast,
 ) -> None:
     incompatible_field = field_record.model_copy(update={"crop": "corn"})
@@ -134,9 +130,9 @@ def test_rule_engine_detects_hard_crop_violation(
 
 def test_rule_engine_detects_phi_violation(
     treatment_plan: TreatmentPlan,
-    field_record: FieldRecord,
-    product_record: ProductRecord,
-    application_history: list[ApplicationRecord],
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
     weather: WeatherForecast,
 ) -> None:
     early_harvest_field = field_record.model_copy(

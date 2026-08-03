@@ -1,7 +1,7 @@
 from typing import Any
 
-from graph import AgriculturalWorkflow
-from schemas import IntakeDecision, TreatmentRequest
+from workflow.graph import AgriculturalWorkflow
+from workflow.schemas import IntakeDecision, TreatmentRequest
 
 
 class FakeChain:

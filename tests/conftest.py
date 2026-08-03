@@ -7,57 +7,61 @@ import pytest
 SRC_DIRECTORY = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIRECTORY))
 
-from schemas import (  # noqa: E402
-    ApplicationRecord,
-    EvidenceChunk,
-    FieldRecord,
-    ProductRecord,
-    TreatmentPlan,
+from data_layer.schemas import (  # noqa: E402
+    Application,
+    FarmField,
+    LabelChunk,
+    ProductLimits,
+    TraitPackage,
     WeatherForecast,
 )
+from workflow.schemas import TreatmentPlan  # noqa: E402
 
 
 @pytest.fixture
-def field_record() -> FieldRecord:
-    return FieldRecord(
-        field_id="F001",
-        crop="soybeans",
-        acres=80,
-        trait_package="Example Trait",
+def field_record() -> FarmField:
+    return FarmField(
+        id="F-01",
+        name="Test Field",
+        crop="soybean",
+        trait_package=TraitPackage.XTENDFLEX,
         growth_stage="R2",
         expected_harvest_date=date(2026, 10, 1),
         latitude=38.627,
         longitude=-90.1994,
-        sensitive_site_distance_feet=300,
+        feet_to_sensitive_site=300,
     )
 
 
 @pytest.fixture
-def product_record() -> ProductRecord:
-    return ProductRecord(
-        product_name="Example Product",
-        supported_crops=["soybeans"],
-        compatible_traits=["Example Trait"],
-        allowed_growth_stages=["V6", "R1", "R2"],
-        minimum_rate=10,
-        maximum_rate=20,
-        seasonal_maximum_rate=40,
-        maximum_wind_mph=15,
-        maximum_temperature_f=90,
-        required_buffer_feet=110,
+def product_record() -> ProductLimits:
+    return ProductLimits(
+        name="Example Product",
+        epa_reg_no="00000-000",
+        supported_crops=["soybean"],
+        allowed_traits=[TraitPackage.XTENDFLEX],
+        earliest_growth_stage="V6",
+        latest_growth_stage="R2",
+        max_rate_fl_oz_per_acre=20,
+        max_seasonal_fl_oz_per_acre=40,
+        max_applications_per_season=2,
+        wind_min_mph=3,
+        wind_max_mph=15,
+        downwind_buffer_ft=110,
         rei_hours=24,
         phi_days=30,
     )
 
 
 @pytest.fixture
-def application_history() -> list[ApplicationRecord]:
+def application_history() -> list[Application]:
     return [
-        ApplicationRecord(
-            field_id="F001",
-            product_name="Example Product",
-            application_date=date(2026, 7, 3),
-            rate=10,
+        Application(
+            id="A-001",
+            field_id="F-01",
+            product="Example Product",
+            applied_on=date(2026, 7, 3),
+            rate_fl_oz_per_acre=10,
         )
     ]
 
@@ -65,20 +69,20 @@ def application_history() -> list[ApplicationRecord]:
 @pytest.fixture
 def weather() -> WeatherForecast:
     return WeatherForecast(
-        forecast_date=date(2026, 8, 2),
-        high_temperature_f=82,
+        latitude=38.627,
+        longitude=-90.1994,
+        target_date=date(2026, 8, 2),
+        high_temp_f=82,
         wind_speed_mph=8,
-        wind_direction="NW",
-        precipitation_probability=20,
-        source="Test weather",
-        cached=True,
+        wind_direction_deg=315,
+        precipitation_probability_pct=20,
     )
 
 
 @pytest.fixture
 def treatment_plan() -> TreatmentPlan:
     return TreatmentPlan(
-        field_id="F001",
+        field_id="F-01",
         product_name="Example Product",
         treatment_date=date(2026, 8, 2),
         proposed_rate=10,
@@ -94,13 +98,13 @@ def treatment_plan() -> TreatmentPlan:
 
 
 @pytest.fixture
-def evidence() -> list[EvidenceChunk]:
+def evidence() -> list[LabelChunk]:
     return [
-        EvidenceChunk(
-            content="Test product-label evidence.",
+        LabelChunk(
+            text="Test product-label evidence.",
             source="test-label.pdf",
             page=1,
-            product_name="Example Product",
-            registration_number="00000-000",
+            product="Example Product",
+            epa_reg_no="00000-000",
         )
     ]
