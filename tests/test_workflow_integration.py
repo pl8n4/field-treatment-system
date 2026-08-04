@@ -1,10 +1,12 @@
 from collections import deque
 from datetime import date
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+import data_layer.work_orders as work_orders
 import workflow.graph as graph_module
 from data_layer.schemas import LabelChunk, WeatherForecast
 from data_layer.weather import WeatherUnavailable
@@ -173,10 +175,14 @@ def install_successful_boundaries(
 )
 def test_compiled_workflow_interrupt_and_resume(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     decision: str,
     expected_status: str,
     expects_work_order: bool,
 ) -> None:
+    monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
+    work_orders.init_db()
+
     retrieved_products: list[str] = []
     install_successful_boundaries(monkeypatch, retrieved_products)
     workflow, chains = build_workflow(
@@ -205,6 +211,11 @@ def test_compiled_workflow_interrupt_and_resume(
     assert ("work_order" in completed) is expects_work_order
     if expects_work_order:
         assert completed["work_order"].status == "simulated"
+        stored_work_order = work_orders.get_work_order(
+            completed["work_order"].work_order_id
+        )
+        assert stored_work_order is not None
+        assert stored_work_order["thread_id"] == thread_id
 
 
 def test_unknown_field_routes_to_clarification(
