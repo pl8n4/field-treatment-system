@@ -267,6 +267,9 @@ class AgriculturalState(TypedDict, total=False):
 
     # Conversation tracking
     turn_number: int
+    
+    # Thread tracking
+    thread_id: str
 
 
 class AgriculturalWorkflow:
@@ -1287,24 +1290,16 @@ class AgriculturalWorkflow:
         }
 
     @staticmethod
-    def _work_order_node(
-        state: AgriculturalState,
-    ) -> dict:
-        """
-        MOCK SIDE EFFECT
-
-        Replace this with the team's work-order writer.
-        """
-
-        result = WorkOrderResult(
-            work_order_id=(f"DEMO-{uuid4().hex[:8].upper()}"),
-            status="simulated",
-            message=(
-                "A simulated work-order record was created. "
-                "No real treatment was scheduled."
-            ),
+    def _work_order_node(state: AgriculturalState) -> dict:
+        # import done within function to avoid circular import issues
+        # between the workflow and the data layer modules
+        from data_layer.work_orders import create_work_order
+        
+        result = create_work_order(
+            plan=state["plan"],
+            thread_id=state.get("thread_id", "unknown"),
         )
-
+        
         return {
             "work_order": result,
             "final_status": "simulated_work_order_created",
@@ -1492,6 +1487,7 @@ class AgriculturalWorkflow:
         return self.graph.invoke(
             {
                 "question": question,
+                "thread_id": thread_id,
                 "messages": [
                     HumanMessage(content=question),
                 ],
