@@ -1,6 +1,6 @@
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from workflow.schemas import TreatmentPlan, WorkOrderResult
@@ -42,31 +42,33 @@ def create_work_order(plan: TreatmentPlan, thread_id: str) -> WorkOrderResult:
     Only called after explicit human approval.
     """
     work_order_id = f"WO-{uuid.uuid4().hex[:8].upper()}"
-    created_at = datetime.now(datetime.timezone.utc).isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     message = (
-        "A simulated work-order record was created. "
-        "No real treatment was scheduled."
+        "A simulated work-order record was created. No real treatment was scheduled."
     )
 
     with _get_connection() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO work_orders (
                 work_order_id, thread_id, field_id, product_name,
                 treatment_date, proposed_rate, treated_acres,
                 status, created_at, message
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            work_order_id,
-            thread_id,
-            plan.field_id,
-            plan.product_name,
-            plan.treatment_date.isoformat(),
-            plan.proposed_rate,
-            plan.treated_acres,
-            "simulated",
-            created_at,
-            message,
-        ))
+        """,
+            (
+                work_order_id,
+                thread_id,
+                plan.field_id,
+                plan.product_name,
+                plan.treatment_date.isoformat(),
+                plan.proposed_rate,
+                plan.treated_acres,
+                "simulated",
+                created_at,
+                message,
+            ),
+        )
 
     return WorkOrderResult(
         work_order_id=work_order_id,
@@ -91,7 +93,10 @@ def get_work_order(work_order_id: str) -> dict | None:
     Return a single work order by ID.
     """
     with _get_connection() as conn:
-        row = conn.execute("""
+        row = conn.execute(
+            """
             SELECT * FROM work_orders WHERE work_order_id = ?
-        """, (work_order_id,)).fetchone()
+        """,
+            (work_order_id,),
+        ).fetchone()
     return dict(row) if row else None

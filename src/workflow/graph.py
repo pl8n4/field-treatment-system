@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 from operator import add
 from typing import Annotated, Literal, TypedDict
-from uuid import uuid4
 
 from langchain_core.messages import (
     AIMessage,
@@ -267,7 +266,7 @@ class AgriculturalState(TypedDict, total=False):
 
     # Conversation tracking
     turn_number: int
-    
+
     # Thread tracking
     thread_id: str
 
@@ -1294,12 +1293,12 @@ class AgriculturalWorkflow:
         # import done within function to avoid circular import issues
         # between the workflow and the data layer modules
         from data_layer.work_orders import create_work_order
-        
+
         result = create_work_order(
             plan=state["plan"],
             thread_id=state.get("thread_id", "unknown"),
         )
-        
+
         return {
             "work_order": result,
             "final_status": "simulated_work_order_created",

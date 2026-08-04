@@ -33,6 +33,7 @@ select = [
 ]
 
 [tool.mypy]
+mypy_path = "src"
 files = ["src"]
 pretty = true
 show_error_codes = true

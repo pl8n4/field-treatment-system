@@ -8,3 +8,4 @@ chroma/
 coverage.xml
 htmlcov/
 .pytest_cache/
+*.db

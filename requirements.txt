@@ -12,3 +12,5 @@ pypdf>=4.0
 python-dotenv>=1.0
 requests>=2.31
 sentence-transformers>=3.0
+streamlit>=1.60.0
+
