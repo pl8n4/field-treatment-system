@@ -233,3 +233,60 @@ def test_rule_engine_detects_requested_value_mismatches(
     assert checks["requested_acres"].passed is False
     assert checks["requested_rate"].severity == "fixable"
     assert checks["requested_acres"].severity == "fixable"
+
+
+def test_growth_stage_window_accepts_stages_past_v8(
+    treatment_request: TreatmentRequest,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
+    weather: WeatherForecast,
+) -> None:
+    """V10 is pre-bloom, and "up to but not including R1" permits it."""
+    product = product_record.model_copy(
+        update={
+            "earliest_growth_stage": "VE",
+            "latest_growth_stage": None,
+            "latest_growth_stage_exclusive": "R1",
+        }
+    )
+
+    for stage, expected in (("V8", True), ("V10", True), ("R1", False)):
+        update = AgriculturalWorkflow._rule_engine_node(
+            build_state(
+                treatment_request,
+                treatment_plan,
+                field_record.model_copy(update={"growth_stage": stage}),
+                product,
+                application_history,
+                weather,
+            )
+        )
+        check = checks_by_name(update)["growth_stage_window"]
+        assert check.passed is expected, f"{stage}: {check.explanation}"
+
+
+def test_unrecognised_growth_stage_is_not_reported_as_a_breach(
+    treatment_request: TreatmentRequest,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
+    weather: WeatherForecast,
+) -> None:
+    """It still fails, but must not claim the label was broken."""
+    update = AgriculturalWorkflow._rule_engine_node(
+        build_state(
+            treatment_request,
+            treatment_plan,
+            field_record.model_copy(update={"growth_stage": "V4.5"}),
+            product_record,
+            application_history,
+            weather,
+        )
+    )
+
+    check = checks_by_name(update)["growth_stage_window"]
+    assert check.passed is False
+    assert "not recognised" in check.explanation
