@@ -7,6 +7,10 @@ from streamlit.testing.v1 import AppTest
 import data_layer.work_orders as work_orders
 from workflow.schemas import CriticDecision, TreatmentPlan
 
+# AppTest resolves a relative path against the file that calls it, which would
+# look for tests/app.py. The app lives at the repo root.
+APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+
 
 class FakeWorkflow:
     def __init__(
@@ -39,7 +43,7 @@ def configured_app(
     workflow: FakeWorkflow | None = None,
 ) -> AppTest:
     monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
-    app = AppTest.from_file("app.py")
+    app = AppTest.from_file(APP_PATH)
     if workflow is not None:
         app.session_state["workflow"] = workflow
         app.session_state["thread_id"] = "test-thread"
@@ -289,7 +293,7 @@ def test_streamlit_renders_stored_work_order(
     work_orders.init_db()
     result = work_orders.create_work_order(treatment_plan, "queue-thread")
 
-    app = AppTest.from_file("app.py").run(timeout=30)
+    app = AppTest.from_file(APP_PATH).run(timeout=30)
 
     assert not app.exception
     assert any(result.work_order_id in expander.label for expander in app.expander)
