@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from langchain_core.documents import Document
@@ -86,6 +87,25 @@ def test_scope_chunks_keeps_global_topic_general() -> None:
     assert scoped[1].metadata["crop_scope"] == corpus.GENERAL_SCOPE
 
 
+def test_crop_scope_rejects_non_crop_part() -> None:
+    assert (
+        corpus.crop_scope(
+            "Soybean appears in this unrelated text.",
+            part="II. INDUSTRIAL TURF AND ORNAMENTAL USES",
+        )
+        == corpus.NON_CROP_SCOPE
+    )
+
+
+def test_headings_ignore_blank_lines_and_capture_part_and_section() -> None:
+    part, section = corpus._headings(
+        "\nI. DIRECTIONS FOR USE WITH FOOD AND FEED CROPS\n\nSOYBEAN\n"
+    )
+
+    assert part == "I. DIRECTIONS FOR USE WITH FOOD AND FEED CROPS"
+    assert section == "SOYBEAN"
+
+
 def test_split_documents_preserves_metadata_and_strips_leading_punctuation() -> None:
     source = document(". " + ("Soybean application direction. " * 50))
 
@@ -130,3 +150,16 @@ def test_load_documents_skips_front_matter_and_short_pages(
     assert documents[0].metadata["epa_reg_no"] == "1-1"
     assert documents[0].metadata["part"].startswith("I. DIRECTIONS")
     assert documents[0].metadata["section"] == "SOYBEAN"
+
+
+def test_load_chunks_combines_document_loading_and_splitting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    documents = [document("source")]
+    chunks = [document("chunk")]
+    monkeypatch.setattr(corpus, "load_documents", lambda: documents)
+    split = Mock(return_value=chunks)
+    monkeypatch.setattr(corpus, "split_documents", split)
+
+    assert corpus.load_chunks() == chunks
+    split.assert_called_once_with(documents)
