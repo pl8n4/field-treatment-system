@@ -1,6 +1,10 @@
 from datetime import date
 
+import pytest
+
+import workflow.graph as graph_module
 from data_layer.schemas import Application, FarmField, ProductLimits, WeatherForecast
+from data_layer.weather import WeatherUnavailable
 from workflow.graph import AgriculturalWorkflow
 from workflow.schemas import TreatmentPlan, TreatmentRequest
 
@@ -290,3 +294,126 @@ def test_unrecognised_growth_stage_is_not_reported_as_a_breach(
     check = checks_by_name(update)["growth_stage_window"]
     assert check.passed is False
     assert "not recognised" in check.explanation
+
+
+def test_wind_rules_fail_closed_against_another_days_forecast(
+    treatment_request: TreatmentRequest,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
+    weather: WeatherForecast,
+) -> None:
+    """A plan that moved to another day must not be cleared by the old day's
+    wind. The forecast describes weather nobody is spraying in.
+    """
+    plan = treatment_plan.model_copy(update={"treatment_date": date(2026, 8, 3)})
+    calm = weather.model_copy(update={"wind_speed_mph": 1.0})
+
+    update = AgriculturalWorkflow._rule_engine_node(
+        build_state(
+            treatment_request,
+            plan,
+            field_record,
+            product_record,
+            application_history,
+            calm,
+        )
+    )
+
+    check = checks_by_name(update)["wind_maximum"]
+    assert check.passed is False
+    assert "could not be checked" in check.explanation
+    assert "2026-08-03" in check.explanation
+
+
+def test_wind_rules_are_checked_when_the_forecast_covers_the_plan(
+    treatment_request: TreatmentRequest,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
+    weather: WeatherForecast,
+) -> None:
+    """The guard must not fire on the ordinary case."""
+    update = AgriculturalWorkflow._rule_engine_node(
+        build_state(
+            treatment_request,
+            treatment_plan,
+            field_record,
+            product_record,
+            application_history,
+            weather,
+        )
+    )
+
+    assert checks_by_name(update)["wind_maximum"].passed is True
+
+
+def test_refresh_weather_refetches_when_the_plan_moved(
+    monkeypatch: pytest.MonkeyPatch,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    weather: WeatherForecast,
+) -> None:
+    """A plan on another day needs that day's wind, not the requested day's."""
+    moved = treatment_plan.model_copy(update={"treatment_date": date(2026, 8, 3)})
+    asked_for: list[date] = []
+
+    def fake_forecast(latitude: float, longitude: float, target_date: date):
+        asked_for.append(target_date)
+        return weather.model_copy(
+            update={"target_date": target_date, "wind_speed_mph": 19.0}
+        )
+
+    monkeypatch.setattr(graph_module, "get_forecast", fake_forecast)
+
+    update = AgriculturalWorkflow._refresh_weather_node(
+        {"plan": moved, "weather": weather, "field_record": field_record}
+    )
+
+    assert asked_for == [date(2026, 8, 3)]
+    assert update["weather"].target_date == date(2026, 8, 3)
+    assert update["weather"].wind_speed_mph == 19.0
+
+
+def test_refresh_weather_leaves_a_matching_forecast_alone(
+    monkeypatch: pytest.MonkeyPatch,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    weather: WeatherForecast,
+) -> None:
+    """No network call on the ordinary path."""
+
+    def forbidden(*args):
+        raise AssertionError("should not re-fetch a forecast that already fits")
+
+    monkeypatch.setattr(graph_module, "get_forecast", forbidden)
+
+    update = AgriculturalWorkflow._refresh_weather_node(
+        {"plan": treatment_plan, "weather": weather, "field_record": field_record}
+    )
+
+    assert update == {}
+
+
+def test_refresh_weather_keeps_the_stale_forecast_when_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    weather: WeatherForecast,
+) -> None:
+    """No weather beats wrong weather: the rule engine then fails wind closed."""
+    moved = treatment_plan.model_copy(update={"treatment_date": date(2026, 8, 3)})
+
+    def unavailable(*args):
+        raise WeatherUnavailable("beyond the forecast horizon")
+
+    monkeypatch.setattr(graph_module, "get_forecast", unavailable)
+
+    update = AgriculturalWorkflow._refresh_weather_node(
+        {"plan": moved, "weather": weather, "field_record": field_record}
+    )
+
+    assert "weather" not in update
+    assert "beyond the forecast horizon" in update["audit_log"][0]

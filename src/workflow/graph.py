@@ -174,6 +174,10 @@ Requirements:
   the field acreage when the user does not supply an acreage.
 - Do not replace either resolved value unless previous review feedback
   explicitly requires a correction.
+- Keep request.proposed_date. Weather is not something you can plan
+  around: moving the spray to a calmer day is the grower's call, not
+  yours, and the plan must stay on the day that was asked for so the
+  reviewer sees the real conflict.
 - Address every previous critic revision instruction.
 
 REQUEST:
@@ -377,6 +381,7 @@ class AgriculturalWorkflow:
         builder.add_node("gather_context", self._gather_context_node)
         builder.add_node("retrieve", self._retrieve_node)
         builder.add_node("specialist", self._specialist_node)
+        builder.add_node("refresh_weather", self._refresh_weather_node)
         builder.add_node("rules", self._rule_engine_node)
         builder.add_node("critic", self._critic_node)
         builder.add_node("human_review", self._human_review_node)
@@ -424,9 +429,14 @@ class AgriculturalWorkflow:
             "specialist",
             self._route_after_specialist,
             {
-                "rules": "rules",
+                "refresh_weather": "refresh_weather",
                 "failure": "failure",
             },
+        )
+
+        builder.add_edge(
+            "refresh_weather",
+            "rules",
         )
 
         builder.add_conditional_edges(
@@ -819,6 +829,57 @@ class AgriculturalWorkflow:
                 "audit_log": ["Retrieval failed."],
             }
 
+    @staticmethod
+    def _refresh_weather_node(
+        state: AgriculturalState,
+    ) -> dict:
+        """
+        Re-fetch the forecast when the plan lands on a day the current one does
+        not cover.
+
+        Context gathering fetches for the requested date. A plan that moves to
+        another day would otherwise be checked against the old day's wind, so a
+        date change could neither clear a wind violation nor cause one. On
+        failure the stale forecast is left in place and the rule engine fails
+        the wind checks closed rather than reading it.
+        """
+
+        plan = state.get("plan")
+        weather = state.get("weather")
+
+        if not plan or not weather or weather.target_date == plan.treatment_date:
+            return {}
+
+        field = state["field_record"]
+
+        try:
+            refreshed = get_forecast(
+                field.latitude,
+                field.longitude,
+                plan.treatment_date,
+            )
+        except WeatherUnavailable as exc:
+            return {
+                "audit_log": [
+                    (
+                        f"No forecast for the planned {plan.treatment_date}: "
+                        f"{exc}. Wind checks cannot be made against "
+                        f"{weather.target_date}'s forecast."
+                    )
+                ],
+            }
+
+        return {
+            "weather": refreshed,
+            "audit_log": [
+                (
+                    f"Re-fetched the forecast for the planned "
+                    f"{plan.treatment_date} (the request asked for "
+                    f"{weather.target_date})."
+                )
+            ],
+        }
+
     def _specialist_node(
         self,
         state: AgriculturalState,
@@ -909,6 +970,30 @@ class AgriculturalWorkflow:
                 if request.proposed_date
                 else None
             )
+
+            # The forecast is fetched for the date that was asked for. If the
+            # plan moved to another day, it describes different weather than
+            # the one being checked, and a wind rule read against it would pass
+            # or fail a day nobody looked at.
+            forecast_covers_plan = weather.target_date == plan.treatment_date
+
+            def weather_rule(rule_name, limit, passed, severity, explanation):
+                """A rule that reads the forecast. Fails closed when the
+                forecast is for a different day than the plan.
+                """
+                if limit is None or forecast_covers_plan:
+                    return rule(rule_name, limit, passed, severity, explanation)
+
+                return RuleCheck(
+                    rule_name=rule_name,
+                    passed=False,
+                    severity=severity,
+                    explanation=(
+                        f"The plan is for {plan.treatment_date} but the only "
+                        f"forecast on hand is for {weather.target_date}, so "
+                        "this could not be checked."
+                    ),
+                )
 
             same_product = [
                 record
@@ -1072,7 +1157,7 @@ class AgriculturalWorkflow:
                         )
                     ),
                 ),
-                rule(
+                weather_rule(
                     "wind_maximum",
                     product.wind_max_mph,
                     lambda: (
@@ -1085,7 +1170,7 @@ class AgriculturalWorkflow:
                         f"label maximum is {product.wind_max_mph} mph."
                     ),
                 ),
-                rule(
+                weather_rule(
                     "wind_minimum",
                     product.wind_min_mph,
                     lambda: (
@@ -1423,13 +1508,13 @@ class AgriculturalWorkflow:
     def _route_after_specialist(
         state: AgriculturalState,
     ) -> Literal[
-        "rules",
+        "refresh_weather",
         "failure",
     ]:
         if state.get("error"):
             return "failure"
 
-        return "rules"
+        return "refresh_weather"
 
     @staticmethod
     def _route_after_rules(

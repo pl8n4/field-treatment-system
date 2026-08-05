@@ -46,7 +46,7 @@ def test_route_after_retrieval(state: dict, expected_route: str) -> None:
     ("router", "success_state", "success_route"),
     [
         (AgriculturalWorkflow._route_after_context, {}, "retrieve"),
-        (AgriculturalWorkflow._route_after_specialist, {}, "rules"),
+        (AgriculturalWorkflow._route_after_specialist, {}, "refresh_weather"),
         (AgriculturalWorkflow._route_after_rules, {}, "critic"),
     ],
 )
