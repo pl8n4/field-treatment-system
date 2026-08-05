@@ -292,6 +292,41 @@ def test_requested_acres_above_field_size_routes_to_clarification(
     assert "plan" not in state
 
 
+def test_unknown_product_routes_to_clarification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(product="Unknown Product")],
+    )
+
+    state = workflow.start("Treat F-02 with Unknown Product.", str(uuid4()))
+
+    assert state["final_status"] == "needs_information"
+    assert any("Unknown Product" in item for item in state["missing_information"])
+    assert "plan" not in state
+
+
+def test_requested_partial_acres_are_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_successful_boundaries(monkeypatch)
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(acres=40, requested_rate=32)],
+        plans=[treatment_plan(acres=40, rate=32)],
+        reviews=[critic_decision()],
+    )
+
+    state = workflow.start("Treat 40 acres of F-02.", str(uuid4()))
+
+    assert state.get("__interrupt__")
+    assert state["field_record"].acres == 96.5
+    assert state["request"].acres == 40
+    assert state["plan"].treated_acres == 40
+    assert state["rule_result"].all_passed is True
+
+
 def test_missing_requested_and_default_rate_routes_to_clarification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -341,6 +376,67 @@ def test_fixable_failure_revises_plan_once(
     assert state["revision_count"] == 1
     assert len(chains[TreatmentPlan].inputs) == 2
     assert "maximum_rate" in chains[TreatmentPlan].inputs[1]["previous_review"]
+
+
+def test_repeated_fixable_failure_escalates_at_revision_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_successful_boundaries(monkeypatch)
+    workflow, chains = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(requested_rate=32)],
+        plans=[treatment_plan(rate=40), treatment_plan(rate=40)],
+        reviews=[critic_decision(), critic_decision()],
+    )
+
+    state = workflow.start("Treat F-02 with Enlist One.", str(uuid4()))
+
+    assert state["final_status"] == "escalated"
+    assert state["revision_count"] == graph_module.MAX_REVISIONS + 1
+    assert len(chains[TreatmentPlan].inputs) == 2
+    assert "__interrupt__" not in state
+
+
+def test_clarification_turn_preserves_conversation_and_accepts_correction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_intake = IntakeDecision(
+        request=TreatmentRequest(
+            field_id="F-02",
+            observed_issue="weeds",
+        ),
+        issue_type="weed",
+        next_step="clarify",
+        routing_reason="Product and date are missing.",
+    )
+    completed_intake = intake_decision(
+        product="Enlist One",
+        acres=40,
+        requested_rate=32,
+    )
+    install_successful_boundaries(monkeypatch)
+    workflow, chains = build_workflow(
+        monkeypatch,
+        intakes=[first_intake, completed_intake],
+        plans=[treatment_plan(acres=40)],
+        reviews=[critic_decision()],
+    )
+    thread_id = str(uuid4())
+
+    first = workflow.start("Field F-02 has weeds.", thread_id)
+    second = workflow.start(
+        "Use Enlist One on 40 acres on August 2, 2026.",
+        thread_id,
+    )
+
+    assert first["final_status"] == "needs_information"
+    assert second.get("__interrupt__")
+    assert second["request"].proposed_product == "Enlist One"
+    assert second["request"].acres == 40
+    second_conversation = chains[IntakeDecision].inputs[1]["conversation"]
+    assert "Field F-02 has weeds." in second_conversation
+    assert "Additional information is required" in second_conversation
+    assert "Use Enlist One on 40 acres" in second_conversation
 
 
 def test_hard_rule_failure_escalates_despite_clean_critic(
@@ -397,3 +493,50 @@ def test_thread_ids_keep_checkpoint_state_isolated(
     assert first["plan"].product_name == "Enlist One"
     assert second["request"].field_id == "F-06"
     assert second["plan"].product_name == "Roundup PowerMax 3"
+
+
+def test_completed_review_cannot_create_duplicate_work_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
+    work_orders.init_db()
+    install_successful_boundaries(monkeypatch)
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(requested_rate=32)],
+        plans=[treatment_plan()],
+        reviews=[critic_decision()],
+    )
+    thread_id = str(uuid4())
+    workflow.start("Treat F-02 with Enlist One.", thread_id)
+
+    completed = workflow.resume_human_review("approved", thread_id)
+
+    with pytest.raises(RuntimeError, match="not awaiting human review"):
+        workflow.resume_human_review("approved", thread_id)
+
+    orders = work_orders.get_all_work_orders()
+    assert len(orders) == 1
+    assert orders[0]["work_order_id"] == completed["work_order"].work_order_id
+
+
+def test_unknown_thread_cannot_resume_human_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _ = build_workflow(monkeypatch, intakes=[])
+
+    with pytest.raises(RuntimeError, match="not awaiting human review"):
+        workflow.resume_human_review("approved", str(uuid4()))
+
+
+def test_invalid_human_review_decision_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _ = build_workflow(monkeypatch, intakes=[])
+
+    with pytest.raises(ValueError, match="approved.*rejected"):
+        workflow.resume_human_review(  # type: ignore[arg-type]
+            "maybe",
+            str(uuid4()),
+        )

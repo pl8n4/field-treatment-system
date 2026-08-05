@@ -107,8 +107,7 @@ def _stage_window_describe(product: ProductLimits) -> str:
     return f"{earliest} to {product.latest_growth_stage or 'any'}"
 
 
-INTAKE_PROMPT = ChatPromptTemplate.from_template(
-    """
+INTAKE_PROMPT = ChatPromptTemplate.from_template("""
 You are the intake parser for an agricultural field-treatment
 review workflow.
 
@@ -154,11 +153,9 @@ CURRENT DATE:
 CONVERSATION:
 
 {conversation}
-    """.strip()
-)
+    """.strip())
 
-SPECIALIST_PROMPT = ChatPromptTemplate.from_template(
-    """
+SPECIALIST_PROMPT = ChatPromptTemplate.from_template("""
 You are the agricultural treatment-plan specialist.
 
 Draft a proposed treatment plan using only the supplied request,
@@ -199,11 +196,9 @@ LABEL EVIDENCE:
 
 PREVIOUS REVIEW:
 {previous_review}
-    """.strip()
-)
+    """.strip())
 
-CRITIC_PROMPT = ChatPromptTemplate.from_template(
-    """
+CRITIC_PROMPT = ChatPromptTemplate.from_template("""
 You are the compliance critic for an agricultural field-treatment
 review workflow.
 
@@ -241,8 +236,7 @@ RULE CHECKS:
 
 EVIDENCE:
 {evidence}
-    """.strip()
-)
+    """.strip())
 
 
 class AgriculturalState(TypedDict, total=False):
@@ -1549,6 +1543,13 @@ class AgriculturalWorkflow:
             },
             "recursion_limit": 30,
         }
+
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("decision must be 'approved' or 'rejected'")
+
+        snapshot = self.graph.get_state(config)
+        if "human_review" not in snapshot.next:
+            raise RuntimeError(f"Thread {thread_id!r} is not awaiting human review.")
 
         return self.graph.invoke(
             Command(
