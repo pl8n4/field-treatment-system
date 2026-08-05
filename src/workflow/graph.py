@@ -27,13 +27,13 @@ from data_layer.records import (
 )
 from data_layer.retriever import search
 from data_layer.schemas import (
-    SOYBEAN_STAGES,
     Application,
     FarmField,
     LabelChunk,
     ProductLimits,
     TraitPackage,
     WeatherForecast,
+    stage_position,
 )
 from data_layer.weather import WeatherUnavailable, get_forecast
 from workflow.config import (
@@ -70,28 +70,45 @@ EVIDENCE_QUERIES = (
 
 def _stage_in_window(stage: str, product: ProductLimits) -> bool:
     """
-    Whether a growth stage falls inside a label's application window.
-
-    Stages are ordered by SOYBEAN_STAGES, not alphabetically: "V4" < "R1" is
-    False as a string comparison even though V4 comes first in the season.
+    Whether a growth stage falls inside a label's application window. Compared by
+    season position, never as strings. An unrecognised stage returns False.
     """
-    if stage not in SOYBEAN_STAGES:
+    position = stage_position(stage)
+    if position is None:
         return False
 
-    position = SOYBEAN_STAGES.index(stage)
     earliest = product.earliest_growth_stage
     latest = product.latest_growth_stage
+    latest_exclusive = product.latest_growth_stage_exclusive
 
-    if earliest and position < SOYBEAN_STAGES.index(earliest):
-        return False
+    if earliest and (bound := stage_position(earliest)) is not None:
+        if position < bound:
+            return False
 
-    if latest and position > SOYBEAN_STAGES.index(latest):
-        return False
+    if latest and (bound := stage_position(latest)) is not None:
+        if position > bound:
+            return False
+
+    if latest_exclusive and (bound := stage_position(latest_exclusive)) is not None:
+        if position >= bound:
+            return False
 
     return True
 
 
-INTAKE_PROMPT = ChatPromptTemplate.from_template("""
+def _stage_window_describe(product: ProductLimits) -> str:
+    """The label's application window in words, for a rule explanation."""
+    earliest = product.earliest_growth_stage or "any"
+    if product.latest_growth_stage_exclusive:
+        return (
+            f"{earliest} up to but not including "
+            f"{product.latest_growth_stage_exclusive}"
+        )
+    return f"{earliest} to {product.latest_growth_stage or 'any'}"
+
+
+INTAKE_PROMPT = ChatPromptTemplate.from_template(
+    """
 You are the intake parser for an agricultural field-treatment
 review workflow.
 
@@ -137,9 +154,11 @@ CURRENT DATE:
 CONVERSATION:
 
 {conversation}
-    """.strip())
+    """.strip()
+)
 
-SPECIALIST_PROMPT = ChatPromptTemplate.from_template("""
+SPECIALIST_PROMPT = ChatPromptTemplate.from_template(
+    """
 You are the agricultural treatment-plan specialist.
 
 Draft a proposed treatment plan using only the supplied request,
@@ -180,9 +199,11 @@ LABEL EVIDENCE:
 
 PREVIOUS REVIEW:
 {previous_review}
-    """.strip())
+    """.strip()
+)
 
-CRITIC_PROMPT = ChatPromptTemplate.from_template("""
+CRITIC_PROMPT = ChatPromptTemplate.from_template(
+    """
 You are the compliance critic for an agricultural field-treatment
 review workflow.
 
@@ -220,7 +241,8 @@ RULE CHECKS:
 
 EVIDENCE:
 {evidence}
-    """.strip())
+    """.strip()
+)
 
 
 class AgriculturalState(TypedDict, total=False):
@@ -755,12 +777,13 @@ class AgriculturalWorkflow:
         Pull label text for the proposed product out of the Chroma store.
 
         One query per restriction the rule engine checks, so the specialist has
-        something to cite for each of them. The product metadata filter keeps
-        the search inside this product's label instead of all five.
+        something to cite for each. Filtered to this label and to the crop in the
+        ground — a turf rate cited for soybean reads as plausible as the truth.
         """
 
         try:
             product = state["product_record"]
+            field = state["field_record"]
             request = state["request"]
 
             queries = list(EVIDENCE_QUERIES)
@@ -771,7 +794,7 @@ class AgriculturalWorkflow:
             seen: set[tuple[str, int, str]] = set()
 
             for query in queries:
-                for chunk in search(query, product=product.name, k=2):
+                for chunk in search(query, product=product.name, crop=field.crop, k=2):
                     key = (chunk.epa_reg_no, chunk.page, chunk.text[:80])
                     if key in seen:
                         continue
@@ -790,7 +813,8 @@ class AgriculturalWorkflow:
                 "audit_log": [
                     (
                         f"Retrieved {len(evidence)} label chunks for {product.name} "
-                        f"from {len(sources)} source(s) over {len(queries)} queries."
+                        f"scoped to {field.crop} from {len(sources)} source(s) "
+                        f"over {len(queries)} queries."
                     )
                 ],
             }
@@ -1033,13 +1057,25 @@ class AgriculturalWorkflow:
                 ),
                 rule(
                     "growth_stage_window",
-                    product.earliest_growth_stage or product.latest_growth_stage,
+                    (
+                        product.earliest_growth_stage
+                        or product.latest_growth_stage
+                        or product.latest_growth_stage_exclusive
+                    ),
                     lambda: _stage_in_window(field.growth_stage, product),
                     "hard_violation",
                     lambda: (
-                        f"Field is at {field.growth_stage}; the label window is "
-                        f"{product.earliest_growth_stage or 'any'} to "
-                        f"{product.latest_growth_stage or 'any'}."
+                        (
+                            f"Field stage {field.growth_stage!r} was not "
+                            "recognised, so the label window "
+                            f"({_stage_window_describe(product)}) could not be "
+                            "checked."
+                        )
+                        if stage_position(field.growth_stage) is None
+                        else (
+                            f"Field is at {field.growth_stage}; the label "
+                            f"window is {_stage_window_describe(product)}."
+                        )
                     ),
                 ),
                 rule(

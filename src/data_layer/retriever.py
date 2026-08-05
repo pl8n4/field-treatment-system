@@ -13,7 +13,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from data_layer.corpus import load_chunks
+from data_layer.corpus import load_chunks, scope_covers
 from data_layer.records import DATA_DIR
 from data_layer.schemas import LabelChunk
 
@@ -74,25 +74,49 @@ def rebuild() -> int:
     """Drop the store and re-ingest data/labels/. Returns the chunk count."""
     _connect().delete_collection()
     vector_store.cache_clear()
+    _known_scopes.cache_clear()
     return len(vector_store().get()["ids"])
+
+
+@lru_cache(maxsize=1)
+def _known_scopes() -> tuple[str, ...]:
+    """Every distinct crop_scope value in the store, read once."""
+    metadatas = vector_store().get(include=["metadatas"])["metadatas"]
+    return tuple({(m or {}).get("crop_scope", "general") for m in metadatas})
+
+
+def _crop_filter(crop: str) -> dict:
+    """A Chroma `where` clause admitting only scopes citable for `crop`. Chroma
+    matches by equality, so the acceptable scopes are expanded into a list.
+    """
+    allowed = [s for s in _known_scopes() if scope_covers(s, crop)]
+    return {"crop_scope": {"$in": allowed or ["general"]}}
 
 
 def search(
     query: str,
     *,
     product: str | None = None,
+    crop: str | None = None,
     k: int = DEFAULT_K,
     fetch_k: int = DEFAULT_FETCH_K,
     lambda_mult: float = DEFAULT_LAMBDA_MULT,
 ) -> list[LabelChunk]:
-    """The k most relevant, mutually non-redundant chunks, optionally for one product.
-
-    The product filter is the point of the metadata: a temperature restriction
-    is looked up in one product's label, not across all five.
+    """The k most relevant, mutually non-redundant chunks, optionally narrowed to
+    one product and one crop. Without `crop`, a soybean rate query can return a
+    turf rate; text naming no crop is "general" and always survives.
     """
-    search_kwargs: dict = {"k": k, "fetch_k": fetch_k, "lambda_mult": lambda_mult}
+    conditions: list[dict] = []
     if product:
-        search_kwargs["filter"] = {"product": product}
+        conditions.append({"product": product})
+    if crop:
+        conditions.append(_crop_filter(crop))
+
+    search_kwargs: dict = {"k": k, "fetch_k": fetch_k, "lambda_mult": lambda_mult}
+    if len(conditions) == 1:
+        search_kwargs["filter"] = conditions[0]
+    elif conditions:
+        search_kwargs["filter"] = {"$and": conditions}
 
     retriever = vector_store().as_retriever(
         search_type="mmr", search_kwargs=search_kwargs

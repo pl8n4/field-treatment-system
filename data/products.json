@@ -66,7 +66,7 @@
       "xtendflex"
     ],
     "earliest_growth_stage": "VE",
-    "latest_growth_stage": "V8",
+    "latest_growth_stage_exclusive": "R1",
     "default_rate_fl_oz_per_acre": 19.0,
     "max_rate_fl_oz_per_acre": 34.0,
     "max_seasonal_fl_oz_per_acre": 69.0,
