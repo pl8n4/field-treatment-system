@@ -1544,6 +1544,13 @@ class AgriculturalWorkflow:
             "recursion_limit": 30,
         }
 
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("decision must be 'approved' or 'rejected'")
+
+        snapshot = self.graph.get_state(config)
+        if "human_review" not in snapshot.next:
+            raise RuntimeError(f"Thread {thread_id!r} is not awaiting human review.")
+
         return self.graph.invoke(
             Command(
                 resume={
