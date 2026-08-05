@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from data_layer.schemas import FarmField, ProductLimits
+from data_layer.schemas import FarmField, ProductLimits, stage_position
 from workflow.schemas import TreatmentPlan, TreatmentRequest
 
 
@@ -74,3 +74,20 @@ def test_product_limits_rejects_nonpositive_default_rate(
 
     with pytest.raises(ValidationError):
         ProductLimits.model_validate(product_data)
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected"),
+    [
+        ("VE", 0),
+        ("vc", 1),
+        ("V10", 11),
+        ("R2", 1002),
+        ("V4.5", None),
+    ],
+)
+def test_stage_position_orders_supported_growth_stages(
+    stage: str,
+    expected: int | None,
+) -> None:
+    assert stage_position(stage) == expected

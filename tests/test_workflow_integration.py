@@ -292,6 +292,21 @@ def test_requested_acres_above_field_size_routes_to_clarification(
     assert "plan" not in state
 
 
+def test_unknown_product_routes_to_clarification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(product="Unknown Product")],
+    )
+
+    state = workflow.start("Treat F-02 with Unknown Product.", str(uuid4()))
+
+    assert state["final_status"] == "needs_information"
+    assert any("Unknown Product" in item for item in state["missing_information"])
+    assert "plan" not in state
+
+
 def test_requested_partial_acres_are_preserved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

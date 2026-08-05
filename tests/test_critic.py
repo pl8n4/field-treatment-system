@@ -145,3 +145,62 @@ def test_critic_converts_chain_exception_to_controlled_failure(
 
     assert update["error"] == "Critic failed: model unavailable"
     assert update["audit_log"] == ["Critic failed."]
+
+
+def test_critic_preserves_matching_hard_violation(
+    treatment_plan: TreatmentPlan,
+    evidence: list[LabelChunk],
+) -> None:
+    model_review = CriticDecision(
+        verdict="hard_violation",
+        explanation="The crop is incompatible.",
+        issues=["crop_compatibility"],
+    )
+    workflow = workflow_with_review(model_review)
+    state = critic_state(
+        treatment_plan,
+        evidence,
+        [
+            RuleCheck(
+                rule_name="crop_compatibility",
+                passed=False,
+                severity="hard_violation",
+                explanation="Crop is incompatible.",
+            )
+        ],
+    )
+
+    update = workflow._critic_node(state)
+
+    assert update["review"] == model_review
+    assert "agreed" in update["audit_log"][1]
+
+
+def test_critic_preserves_matching_fixable_verdict_and_counts_revision(
+    treatment_plan: TreatmentPlan,
+    evidence: list[LabelChunk],
+) -> None:
+    model_review = CriticDecision(
+        verdict="fixable",
+        explanation="The plan rate must be revised.",
+        issues=["maximum_rate"],
+    )
+    workflow = workflow_with_review(model_review)
+    state = critic_state(
+        treatment_plan,
+        evidence,
+        [
+            RuleCheck(
+                rule_name="maximum_rate",
+                passed=False,
+                severity="fixable",
+                explanation="Rate exceeds the maximum.",
+            )
+        ],
+    )
+
+    update = workflow._critic_node(state)
+
+    assert update["review"] == model_review
+    assert update["revision_count"] == 1
+    assert "agreed" in update["audit_log"][1]
