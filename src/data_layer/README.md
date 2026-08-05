@@ -2,18 +2,16 @@
 
 Farm records, label knowledge, and weather — components 1–5 of
 [system-spec.md](../../development_documentation/system-spec.md). Every function
-returns Pydantic models from [schemas.py](schemas.py); nothing in here calls an
-LLM.
+returns Pydantic models from [schemas.py](schemas.py)
 
 ## Farm records — [records.py](records.py)
 
 - **`list_fields()` / `list_products()` / `list_applications()`** — every row of
-  the matching JSON file, validated. Parsed once and cached; call freely.
+  the matching JSON file, validated.
 - **`find_field(text)` / `find_product(text)`** — resolve free text to one
   record, or `None`. Ids match by exact equality, names by case-insensitive
-  substring (`"hartley north"`, `"enlist"`). A miss and an ambiguous match
-  (`"hartley"` hits two fields) both return `None`, and both mean the same
-  thing: ask the user which one they meant.
+  substring. A miss and an ambiguous match both return `None`, and it 
+  means to ask the user which one they meant.
 - **`applications_for(field_id, *, product=None, season_year=None)`** — spray
   history for one field. `field_id` is exact — pass `field.id`, not a name.
 - **`seasonal_total_applied(field_id, product, season_year)`** — fl oz/acre of
@@ -22,49 +20,75 @@ LLM.
 
 ## Label search — [retriever.py](retriever.py)
 
-- **`search(query, *, product=None, k=4, fetch_k=20, lambda_mult=0.5)`** — the
-  `k` most relevant, mutually non-redundant label chunks (cosine similarity,
-  then MMR re-ranking; `lambda_mult` trades relevance at 1.0 against diversity
-  at 0.0). Pass `product=product.name` to stay inside one label — usually what
-  you want, since a restriction belongs to one product, not all five. An
-  unknown name returns `[]`. Each chunk carries `product`, `epa_reg_no`, and
-  `page` for citations. First call loads the embedding model (a few seconds).
+- **`search(query, *, product=None, crop=None, k=4, fetch_k=20,
+  lambda_mult=0.5)`** — the `k` most relevant, mutually non-redundant label
+  chunks (cosine similarity, then MMR re-ranking). An unknown name returns `[]`.
+  - **`product=product.name`** stays inside one label
+  - **`crop=field.crop`** stays inside the directions that govern the crop in
+    the ground. 
 - **`vector_store()`** — the underlying LangChain Chroma store, for
   `.as_retriever()` composition.
 - **`rebuild()`** — drop and re-ingest `data/labels/`. Run
   `python -m data_layer.retriever` after changing the PDFs; currently 297 pages
-  → 1,506 chunks. The store is gitignored, so everyone builds their own.
+  → 1,480 chunks. The store is gitignored, so everyone builds their own.
+
+## Label structure — [corpus.py](corpus.py)
+
+A label is not a flat document, and treating it as one is how a citation ends up
+pointing at the wrong crop. Ingest tags every chunk with where it sits:
+
+- **EPA cover letters are dropped.** Every PPLS download opens with the agency's
+  approval letter to the registrant.
+- **`part`** — the top-level division of a master label, read from the running
+  header. The Roundup master label is 171 pages: `I. DIRECTIONS FOR USE WITH
+  FOOD AND FEED CROPS` runs to page 115, and `II. DIRECTIONS FOR USE ON
+  INDUSTRIAL, TURF AND ORNAMENTAL SITES` covers 116–167. Blank on the labels
+  that have no such division.
+- **`section`** — nearest preceding heading (`7.5 Surfactants`). Best-effort and
+  often blank; it describes a citation and no rule ever reads it.
+- **`crop_scope`** — which crops a chunk may be cited for: `"non-crop"` under an
+  industrial/turf part, `"general"` when no crop governs it, otherwise the crop
+  names joined by `+`. Compare with **`scope_covers(scope, crop)`**.
+
+  A chunk that names no crop takes the crop named above it **on the same page**,
+  because that is how directions read — a crop heading, then the rates and
+  intervals under it, which never repeat the name. Delaro's 35-day wheat
+  pre-harvest interval says only "wheat" a few lines up, and scoring each chunk
+  on its own 900 characters left it citable as a soybean restriction. The
+  context resets at the page break, and product-wide topics
+  (`GLOBAL_TOPIC_PATTERN`: storage, first aid, PPE, re-entry, drift, nozzles)
+  stay `"general"` wherever they are printed — Enlist puts its boom-height limit
+  directly under a list of drift-susceptible crops.
+
+The filter cuts Roundup from 842 citable chunks to 340 for a soybean field,
+while leaving the ~8 pages that carry the actual soybean directions intact.
 
 ## Weather — [weather.py](weather.py)
 
 - **`get_forecast(latitude, longitude, target_date)`** — Open-Meteo daily
   forecast for one point and date: high temp (°F), max wind speed (mph),
   dominant wind direction, precipitation probability. Raises
-  `WeatherUnavailable` when the forecast can't be had — network failure, bad
-  response, or a date beyond the ~16-day horizon. No fallback: an uncheckable
-  spray date routes to insufficient information, never to a pass.
+  `WeatherUnavailable` when the forecast fails — network failure, bad
+  response
 
 ## Schema semantics — [schemas.py](schemas.py)
 
 - **`None` on any `ProductLimits` limit means the label sets no such
   restriction** — skip that check, don't fail it. `allowed_traits` is `None`
-  (never `[]`) for Delaro Complete and Paraquat, where trait tolerance is
-  meaningless. `supported_crops` comes from the label's crop-use sections only,
+  for Delaro Complete and Paraquat, where trait tolerance is meaningless. 
+  `supported_crops` comes from the label's crop-use sections only,
   field and row crops only.
 - **`default_rate_fl_oz_per_acre` is a starting point, `max_` is the
-  ceiling.** Use the default when the request names no rate — never the max,
-  which is the worst-case ceiling and burns the seasonal budget. Each default
-  is the lowest rate its label gives for the ordinary broadcast soybean use,
-  because labels key rate to weed size, weed species, and disease pressure and
-  the records model none of those. Going higher is on-label, but needs a
-  reason from the label.
-- **`FarmField.acres` is the default treated extent, not a fixed one.** A
-  request that names its own acreage wins; spot spraying part of a field is
-  normal. Acres never enters a compliance check — every label limit is per
-  acre — it only sizes the work order.
-- **Compare growth stages by index into `SOYBEAN_STAGES`**, never as strings —
-  `"V4" < "R1"` is `False` even though V4 comes first. Stage values are plain
-  `str`, not validated against the tuple.
+  ceiling.** Use the default when the request names no rate. Each default
+  is the lowest rate its label gives for the ordinary broadcast soybean use.
+- **`FarmField.acres` The total acres in the field.** Can be used as a max or backup value if user does
+  not provide information in the request. 
+- **Compare growth stages with `stage_position(stage)`**, never as strings —
+  `"V4" < "R1"` is `False` even though V4 comes first. It returns a season
+  position (`VE`, `VC`, `V1`…`Vn`, `R1`…`R8`) and `None` for anything it does
+  not recognise, which a caller must treat as uncheckable rather than in-window.
+  `SOYBEAN_STAGES` is a listing of the stages the five labels name, not the
+  ordering — stage values are plain `str` and are not validated against it.
 - **`TraitPackage`** members carry comments listing what each stack tolerates,
   which explains every `allowed_traits` list in `products.json`.
 
