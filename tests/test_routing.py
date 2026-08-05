@@ -42,6 +42,29 @@ def test_route_after_retrieval(state: dict, expected_route: str) -> None:
     assert AgriculturalWorkflow._route_after_retrieval(state) == expected_route
 
 
+@pytest.mark.parametrize(
+    ("router", "success_state", "success_route"),
+    [
+        (AgriculturalWorkflow._route_after_context, {}, "retrieve"),
+        (AgriculturalWorkflow._route_after_specialist, {}, "rules"),
+        (AgriculturalWorkflow._route_after_rules, {}, "critic"),
+    ],
+)
+def test_intermediate_routes_handle_success_and_failure(
+    router,
+    success_state: dict,
+    success_route: str,
+) -> None:
+    assert router(success_state) == success_route
+    assert router({"error": "controlled failure"}) == "failure"
+
+
+def test_context_routes_missing_information_to_clarification() -> None:
+    state = {"missing_information": ["field record"]}
+
+    assert AgriculturalWorkflow._route_after_context(state) == "clarify"
+
+
 def critic_route_state(
     checks: list[RuleCheck],
     verdict: str,
@@ -124,6 +147,10 @@ def test_clean_review_routes_to_human_review() -> None:
     state = critic_route_state([], verdict="clean")
 
     assert AgriculturalWorkflow._route_after_critic(state) == "human_review"
+
+
+def test_critic_error_routes_to_failure() -> None:
+    assert AgriculturalWorkflow._route_after_critic({"error": "failed"}) == "failure"
 
 
 @pytest.mark.parametrize(

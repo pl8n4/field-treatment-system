@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from enum import Enum
 
 from pydantic import BaseModel, Field
 
-# Soybean growth stages in label order
+# The stages the five labels name. A listing only — compare with stage_position.
 SOYBEAN_STAGES = (
     "VE",
     "VC",
@@ -28,6 +29,27 @@ SOYBEAN_STAGES = (
     "R7",
     "R8",
 )
+
+# Any V stage sorts before any R stage.
+_REPRODUCTIVE_OFFSET = 1000
+
+_V_STAGE = re.compile(r"V([1-9]\d?)")
+_R_STAGE = re.compile(r"R([1-8])")
+
+
+def stage_position(stage: str) -> int | None:
+    """Sort position in the season: VE, VC, V1 … Vn, R1 … R8."""
+    text = stage.strip().upper()
+
+    if text == "VE":
+        return 0
+    if text == "VC":
+        return 1
+    if match := _V_STAGE.fullmatch(text):
+        return 1 + int(match.group(1))
+    if match := _R_STAGE.fullmatch(text):
+        return _REPRODUCTIVE_OFFSET + int(match.group(1))
+    return None
 
 
 class TraitPackage(str, Enum):
@@ -95,8 +117,13 @@ class ProductLimits(BaseModel):
     # herbicidal activity, and a harvest-aid desiccant is applied to kill the crop.
     # An empty list would mean no trait may be sprayed, which is never true.
     allowed_traits: list[TraitPackage] | None = None
+
+    # earliest_/latest_ are inclusive; _exclusive is for "up to but not
+    # including R1". Never flatten that to latest="V8" — soybeans reach V10
+    # before bloom. Set at most one latest_ bound.
     earliest_growth_stage: str | None = None
     latest_growth_stage: str | None = None
+    latest_growth_stage_exclusive: str | None = None
     # Where to start when the request names no rate
     default_rate_fl_oz_per_acre: float | None = Field(
         default=None,
@@ -123,6 +150,13 @@ class LabelChunk(BaseModel):
     epa_reg_no: str
     page: int
     source: str  # PDF filename, for the citation list
+
+    # Where the slice sits. Best-effort, often blank; no rule reads them.
+    part: str = ""  # e.g. "I. DIRECTIONS FOR USE WITH FOOD AND FEED CROPS"
+    section: str = ""  # e.g. "7.5 Surfactants"
+
+    # "general", "non-crop", or names joined by "+". Use corpus.scope_covers.
+    crop_scope: str = "general"
 
 
 # --- Weather ---
