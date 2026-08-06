@@ -22,6 +22,10 @@ select = [
 # The MVP uses local calendar dates for forecast targets.
 "src/data_layer/weather.py" = ["DTZ011"]
 
+# The treatment-date bounds mirror the horizon check in weather.py, which
+# compares against the local calendar date. Both must use the same clock.
+"app.py" = ["DTZ011"]
+
 "src/workflow/graph.py" = [
     # Graph nodes intentionally catch unexpected integration and model
     # errors so the workflow can enter its controlled failure route.

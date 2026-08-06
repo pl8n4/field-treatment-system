@@ -7,6 +7,8 @@ from streamlit.testing.v1 import AppTest
 import data_layer.work_orders as work_orders
 from workflow.schemas import CriticDecision, TreatmentPlan
 
+APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+
 
 class FakeWorkflow:
     def __init__(
@@ -39,7 +41,7 @@ def configured_app(
     workflow: FakeWorkflow | None = None,
 ) -> AppTest:
     monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
-    app = AppTest.from_file("app.py")
+    app = AppTest.from_file(APP_PATH)
     if workflow is not None:
         app.session_state["workflow"] = workflow
         app.session_state["thread_id"] = "test-thread"
@@ -54,6 +56,10 @@ def button_with_label(app: AppTest, label: str):
 
 def text_area_with_label(app: AppTest, label: str):
     return next(area for area in app.text_area if area.label == label)
+
+
+def text_input_with_label(app: AppTest, label: str):
+    return next(item for item in app.text_input if item.label == label)
 
 
 def test_streamlit_app_starts_with_empty_work_order_queue(
@@ -144,9 +150,7 @@ def test_streamlit_rejects_invalid_application_rate(
     app = configured_app(monkeypatch, tmp_path, workflow)
 
     text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
-    next(item for item in app.text_input if item.label == "Application Rate").set_value(
-        invalid_rate
-    )
+    text_input_with_label(app, "Application Rate (fl oz/acre)").set_value(invalid_rate)
     button_with_label(app, "Submit").click()
     app.run(timeout=30)
 
@@ -318,7 +322,7 @@ def test_streamlit_renders_stored_work_order(
     work_orders.init_db()
     result = work_orders.create_work_order(treatment_plan, "queue-thread")
 
-    app = AppTest.from_file("app.py").run(timeout=30)
+    app = AppTest.from_file(APP_PATH).run(timeout=30)
 
     assert not app.exception
     assert any(result.work_order_id in expander.label for expander in app.expander)

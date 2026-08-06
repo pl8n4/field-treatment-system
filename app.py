@@ -1,5 +1,6 @@
 import sys
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 import streamlit as st
 
 from data_layer.records import list_fields, list_products
+from data_layer.weather import FORECAST_HORIZON_DAYS
 from data_layer.work_orders import get_all_work_orders, init_db
 from workflow.graph import AgriculturalWorkflow
 
@@ -95,7 +97,7 @@ if st.session_state.awaiting_review and st.session_state.last_state:
             st.write(f"**Product:** {plan.get('product_name')}")
             st.write(f"**Treatment Date:** {plan.get('treatment_date')}")
             st.write(f"**Application Rate:** {plan.get('proposed_rate')} fl oz/acre")
-            st.write(f"**Acreage:** {plan.get('treated_acres')}")
+            st.write(f"**Acreage:** {plan.get('treated_acres')} acres")
             st.write(plan.get("timing_summary", ""))
 
         st.subheader("Weather and Safety Summary")
@@ -241,9 +243,26 @@ else:
             else field_choice.split(" — ", maxsplit=1)[0]
         )
 
-        acreage = st.number_input("Acreage", min_value=0.0, step=1.0)
-        application_rate = st.text_input("Application Rate")
-        treatment_date = st.date_input("Treatment Date")
+        acreage = st.number_input(
+            "Acreage (acres)",
+            min_value=0.0,
+            step=1.0,
+            help="Leave at 0 to treat the field's full recorded acreage.",
+        )
+        application_rate = st.text_input(
+            "Application Rate (fl oz/acre)",
+            placeholder="e.g. 32",
+            help="Leave blank to use the product label's default rate.",
+        )
+        treatment_date = st.date_input(
+            "Treatment Date",
+            min_value=date.today(),
+            max_value=date.today() + timedelta(days=FORECAST_HORIZON_DAYS),
+            help=(
+                "The forecast the compliance checks rely on reaches about "
+                f"{FORECAST_HORIZON_DAYS} days ahead."
+            ),
+        )
         question = st.text_area(
             "Treatment Request",
             placeholder="Describe the observed issue and requested treatment.",
@@ -313,7 +332,7 @@ else:
                 st.write(f"**Product:** {order['product_name']}")
                 st.write(f"**Date:** {order['treatment_date']}")
             with order_col2:
-                st.write(f"**Rate:** {order['proposed_rate']} fl oz/acre")
-                st.write(f"**Acres:** {order['treated_acres']}")
+                st.write(f"**Application Rate:** {order['proposed_rate']} fl oz/acre")
+                st.write(f"**Acreage:** {order['treated_acres']} acres")
                 st.write(f"**Created:** {order['created_at']}")
             st.caption(order["message"])
