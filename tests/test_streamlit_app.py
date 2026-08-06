@@ -63,10 +63,12 @@ def test_streamlit_app_starts_with_empty_work_order_queue(
     app = configured_app(monkeypatch, tmp_path)
 
     assert not app.exception
-    assert app.title[0].value == "Field Treatment System"
-    assert [tab.label for tab in app.tabs] == [
-        "Submit Request",
-        "Work Order Queue",
+    assert app.title[0].value == "AgriFlow AI"
+    assert [selectbox.label for selectbox in app.selectbox] == [
+        "Crop",
+        "Product",
+        "State / Location",
+        "Field ID",
     ]
     assert "thread_id" in app.session_state
     assert "workflow" in app.session_state
@@ -86,11 +88,16 @@ def test_streamlit_submission_uses_current_thread(
     )
     app = configured_app(monkeypatch, tmp_path, workflow)
 
-    text_area_with_label(app, "Request").set_value("Treat field F-02.")
+    text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
     button_with_label(app, "Submit").click()
     app.run(timeout=30)
 
-    assert workflow.start_calls == [("Treat field F-02.", "test-thread")]
+    assert len(workflow.start_calls) == 1
+    request, thread_id = workflow.start_calls[0]
+    assert "Treat the weeds." in request
+    assert "The field ID is F-01." in request
+    assert "The proposed product is Paraquat 43.2% SL." in request
+    assert thread_id == "test-thread"
     assert app.session_state["last_state"]["final_status"] == "needs_information"
     assert app.session_state["thread_id"] == "test-thread"
 
@@ -104,7 +111,7 @@ def test_streamlit_submission_enters_human_review_on_interrupt(
     )
     app = configured_app(monkeypatch, tmp_path, workflow)
 
-    text_area_with_label(app, "Request").set_value("Treat field F-02.")
+    text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
     button_with_label(app, "Submit").click()
     app.run(timeout=30)
 
@@ -122,7 +129,29 @@ def test_streamlit_rejects_blank_submission(
     app.run(timeout=30)
 
     assert workflow.start_calls == []
-    assert "Please enter a request before submitting." in [
+    assert "Please provide: treatment request." in [
+        warning.value for warning in app.warning
+    ]
+
+
+@pytest.mark.parametrize("invalid_rate", ["0", "-1", "not a number"])
+def test_streamlit_rejects_invalid_application_rate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    invalid_rate: str,
+) -> None:
+    workflow = FakeWorkflow()
+    app = configured_app(monkeypatch, tmp_path, workflow)
+
+    text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
+    next(item for item in app.text_input if item.label == "Application Rate").set_value(
+        invalid_rate
+    )
+    button_with_label(app, "Submit").click()
+    app.run(timeout=30)
+
+    assert workflow.start_calls == []
+    assert "Application rate must be a number greater than zero." in [
         warning.value for warning in app.warning
     ]
 
@@ -244,7 +273,7 @@ def test_streamlit_human_review_uses_current_thread_and_rotates_it(
     }
     app.run(timeout=30)
 
-    button_label = "Approve" if decision == "approved" else "Reject"
+    button_label = "Accept" if decision == "approved" else "Decline"
     button_with_label(app, button_label).click()
     app.run(timeout=30)
 
