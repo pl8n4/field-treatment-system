@@ -143,6 +143,10 @@ Rules:
 - Do not invent missing information.
 - Resolve relative dates using the supplied current date.
 - Format proposed_date as YYYY-MM-DD.
+- observed_issue is the reported weed, pest, disease, or nutrient problem;
+  never copy the crop name into observed_issue.
+- For optional numeric fields that the user did not provide, return null.
+  Never use 0 as a placeholder for missing acres or requested_rate.
 - Return every field required by the output schema.
 - Do not recommend or approve a treatment.
 
@@ -434,6 +438,7 @@ class AgriculturalWorkflow:
             self._route_after_rules,
             {
                 "critic": "critic",
+                "clarify": "clarify",
                 "failure": "failure",
             },
         )
@@ -1145,13 +1150,38 @@ class AgriculturalWorkflow:
             )
 
             passed_count = sum(check.passed for check in checks)
+            failed_checks = [check for check in checks if not check.passed]
+            failed_weather_checks = [
+                check
+                for check in failed_checks
+                if check.rule_name in {"wind_maximum", "wind_minimum"}
+            ]
+
+            audit_log = [
+                f"Rule engine completed: {passed_count}/{len(checks)} checks passed."
+            ]
+            audit_log.extend(
+                f"Failed rule {check.rule_name}: {check.explanation}"
+                for check in failed_checks
+            )
+
+            missing_information = []
+            if failed_weather_checks:
+                weather_explanations = " ".join(
+                    check.explanation for check in failed_weather_checks
+                )
+                missing_information = [
+                    (
+                        "A different proposed treatment date because the "
+                        f"requested date has unsuitable wind. {weather_explanations}"
+                    )
+                ]
 
             return {
                 "rule_result": result,
+                "missing_information": missing_information,
                 "error": None,
-                "audit_log": [
-                    f"Rule engine completed: {passed_count}/{len(checks)} checks passed."
-                ],
+                "audit_log": audit_log,
             }
 
         except Exception as exc:
@@ -1436,10 +1466,23 @@ class AgriculturalWorkflow:
         state: AgriculturalState,
     ) -> Literal[
         "critic",
+        "clarify",
         "failure",
     ]:
         if state.get("error"):
             return "failure"
+
+        failed_checks = [
+            check for check in state["rule_result"].checks if not check.passed
+        ]
+        if any(check.severity == "hard_violation" for check in failed_checks):
+            return "critic"
+
+        if any(
+            check.rule_name in {"wind_maximum", "wind_minimum"}
+            for check in failed_checks
+        ):
+            return "clarify"
 
         return "critic"
 
