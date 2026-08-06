@@ -81,6 +81,39 @@ def test_rule_engine_detects_fixable_rate_failures(
     assert update["rule_result"].all_passed is False
 
 
+def test_rule_engine_requests_new_date_and_audits_failed_wind_rule(
+    treatment_request: TreatmentRequest,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
+    weather: WeatherForecast,
+) -> None:
+    windy_forecast = weather.model_copy(update={"wind_speed_mph": 20.2})
+
+    update = AgriculturalWorkflow._rule_engine_node(
+        build_state(
+            treatment_request,
+            treatment_plan,
+            field_record,
+            product_record,
+            application_history,
+            windy_forecast,
+        )
+    )
+
+    assert update["missing_information"] == [
+        (
+            "A different proposed treatment date because the requested date has "
+            "unsuitable wind. Forecast wind is 20.2 mph; label maximum is 15.0 mph."
+        )
+    ]
+    assert (
+        "Failed rule wind_maximum: Forecast wind is 20.2 mph; "
+        "label maximum is 15.0 mph."
+    ) in update["audit_log"]
+
+
 def test_rule_engine_counts_only_matching_product_history(
     treatment_request: TreatmentRequest,
     treatment_plan: TreatmentPlan,

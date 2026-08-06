@@ -47,7 +47,11 @@ def test_route_after_retrieval(state: dict, expected_route: str) -> None:
     [
         (AgriculturalWorkflow._route_after_context, {}, "retrieve"),
         (AgriculturalWorkflow._route_after_specialist, {}, "rules"),
-        (AgriculturalWorkflow._route_after_rules, {}, "critic"),
+        (
+            AgriculturalWorkflow._route_after_rules,
+            {"rule_result": RuleEngineResult(checks=[], all_passed=True)},
+            "critic",
+        ),
     ],
 )
 def test_intermediate_routes_handle_success_and_failure(
@@ -63,6 +67,48 @@ def test_context_routes_missing_information_to_clarification() -> None:
     state = {"missing_information": ["field record"]}
 
     assert AgriculturalWorkflow._route_after_context(state) == "clarify"
+
+
+def test_weather_rule_failure_routes_to_clarification() -> None:
+    state = {
+        "rule_result": RuleEngineResult(
+            checks=[
+                RuleCheck(
+                    rule_name="wind_maximum",
+                    passed=False,
+                    severity="fixable",
+                    explanation="Forecast wind exceeds the label maximum.",
+                )
+            ],
+            all_passed=False,
+        )
+    }
+
+    assert AgriculturalWorkflow._route_after_rules(state) == "clarify"
+
+
+def test_hard_failure_takes_priority_over_weather_clarification() -> None:
+    state = {
+        "rule_result": RuleEngineResult(
+            checks=[
+                RuleCheck(
+                    rule_name="wind_maximum",
+                    passed=False,
+                    severity="fixable",
+                    explanation="Forecast wind exceeds the label maximum.",
+                ),
+                RuleCheck(
+                    rule_name="trait_compatibility",
+                    passed=False,
+                    severity="hard_violation",
+                    explanation="The field trait is incompatible.",
+                ),
+            ],
+            all_passed=False,
+        )
+    }
+
+    assert AgriculturalWorkflow._route_after_rules(state) == "critic"
 
 
 def critic_route_state(
