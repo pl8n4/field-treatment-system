@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -5,9 +6,22 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import data_layer.work_orders as work_orders
-from workflow.schemas import CriticDecision, TreatmentPlan
+from data_layer.schemas import (
+    Application,
+    FarmField,
+    LabelChunk,
+    ProductLimits,
+    WeatherForecast,
+)
+from workflow.schemas import (
+    CriticDecision,
+    RuleCheck,
+    RuleEngineResult,
+    TreatmentPlan,
+)
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+QUEUE_PAGE_PATH = Path(__file__).resolve().parent / "harnesses" / "queue_page.py"
 
 
 class FakeWorkflow:
@@ -21,9 +35,19 @@ class FakeWorkflow:
         self.resume_result = resume_result or {}
         self.start_calls: list[tuple[str, str]] = []
         self.resume_calls: list[tuple[str, str]] = []
+        self.reported_nodes: list[str] = []
 
-    def start(self, question: str, thread_id: str) -> dict[str, Any]:
+    def start(
+        self,
+        question: str,
+        thread_id: str,
+        on_node: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
         self.start_calls.append((question, thread_id))
+        if on_node is not None:
+            for node in self.start_result.get("audit_log", []) or []:
+                on_node(node)
+                self.reported_nodes.append(node)
         return self.start_result
 
     def resume_human_review(
@@ -62,22 +86,33 @@ def text_input_with_label(app: AppTest, label: str):
     return next(item for item in app.text_input if item.label == label)
 
 
-def test_streamlit_app_starts_with_empty_work_order_queue(
+def test_streamlit_app_starts_on_the_intake_form(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     app = configured_app(monkeypatch, tmp_path)
 
     assert not app.exception
-    assert app.title[0].value == "AgriFlow AI"
+    assert app.title[0].value == "New treatment request"
     assert [selectbox.label for selectbox in app.selectbox] == [
         "Crop",
-        "Product",
-        "State / Location",
         "Field ID",
+        "State / Location",
+        "Product",
     ]
     assert "thread_id" in app.session_state
     assert "workflow" in app.session_state
+
+
+def test_streamlit_work_order_page_starts_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
+
+    app = AppTest.from_file(QUEUE_PAGE_PATH).run(timeout=30)
+
+    assert not app.exception
     assert "No work orders have been created yet." in [info.value for info in app.info]
 
 
@@ -95,7 +130,7 @@ def test_streamlit_submission_uses_current_thread(
     app = configured_app(monkeypatch, tmp_path, workflow)
 
     text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
-    button_with_label(app, "Submit").click()
+    button_with_label(app, "Submit request").click()
     app.run(timeout=30)
 
     assert len(workflow.start_calls) == 1
@@ -118,46 +153,96 @@ def test_streamlit_submission_enters_human_review_on_interrupt(
     app = configured_app(monkeypatch, tmp_path, workflow)
 
     text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
-    button_with_label(app, "Submit").click()
+    button_with_label(app, "Submit request").click()
     app.run(timeout=30)
 
     assert app.session_state["awaiting_review"] is True
 
 
-def test_streamlit_rejects_blank_submission(
+def test_streamlit_rejects_blank_submission_with_an_inline_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     workflow = FakeWorkflow()
     app = configured_app(monkeypatch, tmp_path, workflow)
 
-    button_with_label(app, "Submit").click()
+    button_with_label(app, "Submit request").click()
     app.run(timeout=30)
 
     assert workflow.start_calls == []
-    assert "Please provide: treatment request." in [
-        warning.value for warning in app.warning
-    ]
+    assert "Enter the treatment request." in [error.value for error in app.error]
 
 
-@pytest.mark.parametrize("invalid_rate", ["0", "-1", "not a number"])
-def test_streamlit_rejects_invalid_application_rate(
+def test_streamlit_other_crop_input_appears_without_submitting(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    invalid_rate: str,
 ) -> None:
+    """Choosing "Other" must reveal its input immediately.
+
+    The fields used to live inside an st.form, which suppresses reruns, so the
+    revealed input only appeared after a submit that had already failed.
+    """
     workflow = FakeWorkflow()
     app = configured_app(monkeypatch, tmp_path, workflow)
 
+    assert "Other crop" not in [item.label for item in app.text_input]
+
+    next(box for box in app.selectbox if box.label == "Crop").set_value("Other")
+    app.run(timeout=30)
+
+    assert "Other crop" in [item.label for item in app.text_input]
+
+    text_input_with_label(app, "Other crop").set_value("Sorghum")
     text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
-    text_input_with_label(app, "Application Rate (fl oz/acre)").set_value(invalid_rate)
-    button_with_label(app, "Submit").click()
+    button_with_label(app, "Submit request").click()
     app.run(timeout=30)
 
-    assert workflow.start_calls == []
-    assert "Application rate must be a number greater than zero." in [
-        warning.value for warning in app.warning
-    ]
+    assert len(workflow.start_calls) == 1
+    assert "The crop is Sorghum." in workflow.start_calls[0][0]
+
+
+def test_rate_and_acreage_placeholders_show_the_real_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The greyed value must be the default that will actually be used.
+
+    Both are shown rather than pre-filled: an empty input means "unspecified",
+    which is what lets the workflow fall back to its own records.
+    """
+    app = configured_app(monkeypatch, tmp_path, FakeWorkflow())
+
+    def placeholders() -> dict[str, str | None]:
+        return {item.label: item.placeholder for item in app.number_input}
+
+    next(box for box in app.selectbox if box.label == "Field ID").set_value(
+        "F-02 — Hartley South"
+    )
+    next(box for box in app.selectbox if box.label == "Product").set_value("Enlist One")
+    app.run(timeout=30)
+
+    # Enlist One's label default rate, and F-02's recorded acreage.
+    assert placeholders()["Application rate (fl oz/acre)"] == "32 (default)"
+    assert placeholders()["Area to treat (acres)"] == "96.5 (default)"
+
+    # A product with no record on file has no default to show.
+    next(box for box in app.selectbox if box.label == "Product").set_value("Other")
+    app.run(timeout=30)
+
+    assert (
+        placeholders()["Application rate (fl oz/acre)"]
+        == "Defaults to the product label's default"
+    )
+
+    # Leaving both empty keeps them out of the workflow's request entirely.
+    text_area_with_label(app, "Treatment Request").set_value("Treat the weeds.")
+    text_input_with_label(app, "Other product").set_value("Enlist One")
+    button_with_label(app, "Submit request").click()
+    app.run(timeout=30)
+
+    request = app.session_state["workflow"].start_calls[0][0]
+    assert "acres" not in request
+    assert "application rate" not in request
 
 
 def test_streamlit_followup_resumes_same_conversation_thread(
@@ -185,6 +270,34 @@ def test_streamlit_followup_resumes_same_conversation_thread(
 
     assert workflow.start_calls == [("Use August 6, 2026.", "test-thread")]
     assert app.session_state["awaiting_review"] is True
+
+
+def test_clarification_can_be_abandoned_without_answering(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A reviewer must be able to give up on a clarification loop.
+
+    Text the intake agent cannot parse comes back as another clarification, so
+    with only a follow-up form the request could never be abandoned.
+    """
+    workflow = FakeWorkflow()
+    app = configured_app(monkeypatch, tmp_path, workflow)
+    app.session_state["last_state"] = {
+        "final_status": "needs_information",
+        "final_message": "A date is required.",
+        "missing_information": ["proposed date"],
+    }
+    app.run(timeout=30)
+
+    button_with_label(app, "Abandon this request and start over").click()
+    app.run(timeout=30)
+
+    assert workflow.start_calls == []
+    assert app.session_state["last_state"] is None
+    assert app.session_state["thread_id"] != "test-thread"
+    # Back on a fresh intake form.
+    assert app.title[0].value == "New treatment request"
 
 
 def test_streamlit_followup_without_interrupt_displays_result(
@@ -236,6 +349,117 @@ def test_streamlit_renders_pydantic_plan_and_review(
     assert any(
         plan_without_optional_lists.field_id in item.value for item in app.markdown
     )
+    assert any("All checks passed." in item.value for item in app.success)
+
+
+def test_streamlit_review_renders_full_workflow_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    treatment_plan: TreatmentPlan,
+    field_record: FarmField,
+    product_record: ProductLimits,
+    application_history: list[Application],
+    weather: WeatherForecast,
+    evidence: list[LabelChunk],
+) -> None:
+    """The review screen surfaces the state the old UI never rendered."""
+    app = configured_app(monkeypatch, tmp_path, FakeWorkflow())
+    app.session_state["awaiting_review"] = True
+    app.session_state["last_state"] = {
+        "plan": treatment_plan,
+        "review": CriticDecision(
+            verdict="fixable",
+            explanation="The rate exceeds the label maximum.",
+            issues=["Proposed rate is above the label maximum."],
+        ),
+        "rule_result": RuleEngineResult(
+            checks=[
+                RuleCheck(
+                    rule_name="max_rate",
+                    passed=False,
+                    severity="hard_violation",
+                    explanation="Proposed rate exceeds the label maximum.",
+                ),
+                RuleCheck(
+                    rule_name="trait_compatibility",
+                    passed=True,
+                    severity="informational",
+                    explanation="The field's trait package tolerates the product.",
+                ),
+            ],
+            all_passed=False,
+        ),
+        "field_record": field_record,
+        "product_record": product_record,
+        "application_history": application_history,
+        "weather": weather,
+        "evidence": evidence,
+        "revision_count": 2,
+        "audit_log": ["Intake parsed.", "Rules evaluated."],
+    }
+
+    app.run(timeout=30)
+
+    assert not app.exception
+
+    warnings = [warning.value for warning in app.warning]
+    assert any("Fixable issues" in value for value in warnings)
+
+    markdown = [item.value for item in app.markdown]
+    # The failing rule check, its severity, and the field record are all shown.
+    assert any("Max rate" in value for value in markdown)
+    assert any("1 of 2 checks did not pass" in value for value in markdown)
+    assert any(field_record.growth_stage in value for value in markdown)
+    # The retrieved passage itself, not just a citation string.
+    assert any(evidence[0].text in value for value in markdown)
+
+    captions = [caption.value for caption in app.caption]
+    assert any("2 revisions" in value for value in captions)
+
+
+def test_escalated_result_still_shows_evidence_and_trace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    treatment_plan: TreatmentPlan,
+    evidence: list[LabelChunk],
+) -> None:
+    """An escalated run never reaches the review screen.
+
+    Its evidence and rule results would otherwise be invisible, which is
+    exactly the case where someone needs to see why it was escalated.
+    """
+    app = configured_app(monkeypatch, tmp_path, FakeWorkflow())
+    app.session_state["last_state"] = {
+        "final_status": "escalated",
+        "final_message": "The request requires manual compliance review.",
+        "plan": treatment_plan,
+        "evidence": evidence,
+        "rule_result": RuleEngineResult(
+            checks=[
+                RuleCheck(
+                    rule_name="trait_compatibility",
+                    passed=False,
+                    severity="hard_violation",
+                    explanation="The field's trait package is not on the label.",
+                )
+            ],
+            all_passed=False,
+        ),
+        "audit_log": [
+            "Intake selected the gather_context route.",
+            "Request escalated.",
+        ],
+        "question": "Treat F-01 with Example Product.",
+    }
+
+    app.run(timeout=30)
+
+    assert not app.exception
+
+    markdown = [item.value for item in app.markdown]
+    assert any(evidence[0].text in value for value in markdown)
+    assert any("Trait compatibility" in value for value in markdown)
+    assert any("Request escalated." in value for value in markdown)
 
 
 @pytest.mark.parametrize("decision", ["approved", "rejected"])
@@ -277,7 +501,7 @@ def test_streamlit_human_review_uses_current_thread_and_rotates_it(
     }
     app.run(timeout=30)
 
-    button_label = "Accept" if decision == "approved" else "Decline"
+    button_label = "Accept plan" if decision == "approved" else "Decline plan"
     button_with_label(app, button_label).click()
     app.run(timeout=30)
 
@@ -305,7 +529,7 @@ def test_streamlit_renders_and_resets_completed_result(
 
     assert any("WO-1234ABCD" in markdown.value for markdown in app.markdown)
     original_thread = app.session_state["thread_id"]
-    button_with_label(app, "Start new request").click()
+    button_with_label(app, "Start a new request").click()
     app.run(timeout=30)
 
     assert app.session_state["last_state"] is None
@@ -322,7 +546,9 @@ def test_streamlit_renders_stored_work_order(
     work_orders.init_db()
     result = work_orders.create_work_order(treatment_plan, "queue-thread")
 
-    app = AppTest.from_file(APP_PATH).run(timeout=30)
+    app = AppTest.from_file(QUEUE_PAGE_PATH).run(timeout=30)
 
     assert not app.exception
-    assert any(result.work_order_id in expander.label for expander in app.expander)
+    table = app.dataframe[0].value
+    assert result.work_order_id in list(table["work_order_id"])
+    assert treatment_plan.product_name in list(table["product_name"])
