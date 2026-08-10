@@ -29,14 +29,25 @@ between treatment and harvest.
 ## Architecture
 
 ```text
-app.py                    Streamlit entry point
+app.py                    Streamlit entry point: page config and navigation
 src/main.py               Command-line entry point
+src/ui/                   Streamlit presentation layer
+  views/                  One module per screen (intake, review, result, queue)
+  components/             Reusable panels (verdict, compliance, evidence, ...)
+  state.py                Session bootstrap and workflow transitions
+  request.py              Form values to the workflow's intake message
+  formatting.py           Status, verdict, and severity vocabulary
+  label_pdf.py            Cited-page extraction from the label PDFs
 src/workflow/             LangGraph workflow, agents, state, and schemas
 src/data_layer/           Records, weather, retrieval, and work-order storage
 data/                     Synthetic records and product-label source data
 tests/                    Unit and provider-independent integration tests
 development_documentation/  Design, integration, setup, and testing guides
 ```
+
+The review screen embeds the cited page of the source label beside each
+retrieved passage. The page is extracted from the PDF in `data/labels/` on
+demand, which is why `streamlit[pdf]` is a runtime dependency.
 
 Ollama and Gemini are supported as chat-model providers. Hugging Face sentence
 transformers and Chroma provide local label-evidence retrieval. SQLite stores
