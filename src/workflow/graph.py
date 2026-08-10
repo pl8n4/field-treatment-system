@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 from operator import add
 from typing import Annotated, Literal, TypedDict
@@ -1544,33 +1545,68 @@ class AgriculturalWorkflow:
 
         return "rejected"
 
-    def start(
-        self,
-        question: str,
-        thread_id: str,
-    ) -> dict:
-        config = {
+    @staticmethod
+    def _config(thread_id: str) -> dict:
+        return {
             "configurable": {
                 "thread_id": thread_id,
             },
             "recursion_limit": 30,
         }
 
-        return self.graph.invoke(
-            {
-                "question": question,
-                "thread_id": thread_id,
-                "messages": [
-                    HumanMessage(content=question),
-                ],
-                "audit_log": [],
-                "revision_count": 0,
-                "max_revisions": MAX_REVISIONS,
-                "error": None,
-                "missing_information": [],
-            },
+    @staticmethod
+    def _initial_state(question: str, thread_id: str) -> dict:
+        return {
+            "question": question,
+            "thread_id": thread_id,
+            "messages": [
+                HumanMessage(content=question),
+            ],
+            "audit_log": [],
+            "revision_count": 0,
+            "max_revisions": MAX_REVISIONS,
+            "error": None,
+            "missing_information": [],
+        }
+
+    def start(
+        self,
+        question: str,
+        thread_id: str,
+        on_node: Callable[[str], None] | None = None,
+    ) -> dict:
+        """Run the workflow from a new question and return its final state.
+
+        Without `on_node` this invokes the graph, unchanged. With `on_node` the
+        run is streamed instead and each node's name is reported as it
+        completes, so a caller can show progress. Both paths return the same
+        thing: after a streamed run the checkpoint snapshot holds the channel
+        values invoke would have returned, and the interrupt marker the human
+        review gate depends on is restored from the stream.
+        """
+        config = self._config(thread_id)
+        initial = self._initial_state(question, thread_id)
+
+        if on_node is None:
+            return self.graph.invoke(initial, config=config)
+
+        interrupted = False
+        for update in self.graph.stream(
+            initial,
             config=config,
-        )
+            stream_mode="updates",
+        ):
+            for node_name in update:
+                if node_name == "__interrupt__":
+                    interrupted = True
+                else:
+                    on_node(node_name)
+
+        snapshot = self.graph.get_state(config)
+        state = dict(snapshot.values)
+        if interrupted:
+            state["__interrupt__"] = getattr(snapshot, "interrupts", True)
+        return state
 
     def resume_human_review(
         self,
@@ -1580,12 +1616,7 @@ class AgriculturalWorkflow:
         ],
         thread_id: str,
     ) -> dict:
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-            },
-            "recursion_limit": 30,
-        }
+        config = self._config(thread_id)
 
         if decision not in {"approved", "rejected"}:
             raise ValueError("decision must be 'approved' or 'rejected'")

@@ -540,3 +540,122 @@ def test_invalid_human_review_decision_is_rejected(
             "maybe",
             str(uuid4()),
         )
+
+
+def test_streamed_start_reports_nodes_and_still_interrupts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The progress callback must not change what a run produces.
+
+    start() streams instead of invoking when given on_node, and rebuilds its
+    return value from the checkpoint. The human-review gate depends on the
+    interrupt marker surviving that, so this checks the streamed run pauses
+    and resumes exactly as an invoked one does.
+    """
+    monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
+    work_orders.init_db()
+
+    install_successful_boundaries(monkeypatch)
+    workflow, _ = build_workflow(
+        monkeypatch,
+        intakes=[intake_decision(requested_rate=32)],
+        plans=[treatment_plan()],
+        reviews=[critic_decision()],
+    )
+    thread_id = str(uuid4())
+
+    reported: list[str] = []
+    interrupted = workflow.start(
+        "Treat F-02 with Enlist One.",
+        thread_id,
+        on_node=reported.append,
+    )
+
+    assert reported == [
+        "intake",
+        "gather_context",
+        "retrieve",
+        "specialist",
+        "rules",
+        "critic",
+    ]
+    assert interrupted.get("__interrupt__")
+    assert interrupted["field_record"].id == "F-02"
+    assert interrupted["plan"].product_name == "Enlist One"
+
+    resumed = workflow.resume_human_review("approved", thread_id)
+
+    assert resumed["final_status"] == "simulated_work_order_created"
+    assert resumed["work_order"].work_order_id.startswith("WO-")
+
+
+def test_streamed_clarification_turn_completes_the_follow_up_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The clarify-then-follow-up cycle must survive the streamed path.
+
+    The interface runs every turn with on_node, so a run that ends in
+    clarification rebuilds its final state from the checkpoint rather than
+    receiving it from invoke. This checks the follow-up turn still sees the
+    earlier conversation and carries the request through to human review.
+    """
+    first_intake = IntakeDecision(
+        request=TreatmentRequest(field_id="F-02", observed_issue="weeds"),
+        issue_type="weed",
+        next_step="clarify",
+        routing_reason="Product and date are missing.",
+    )
+    monkeypatch.setattr(work_orders, "DB_PATH", tmp_path / "work_orders.db")
+    work_orders.init_db()
+    install_successful_boundaries(monkeypatch)
+    workflow, chains = build_workflow(
+        monkeypatch,
+        intakes=[
+            first_intake,
+            intake_decision(product="Enlist One", acres=40, requested_rate=32),
+        ],
+        plans=[treatment_plan(acres=40)],
+        reviews=[critic_decision()],
+    )
+    thread_id = str(uuid4())
+
+    first_nodes: list[str] = []
+    first = workflow.start(
+        "Field F-02 has weeds.",
+        thread_id,
+        on_node=first_nodes.append,
+    )
+
+    assert first_nodes == ["intake", "clarify"]
+    assert first["final_status"] == "needs_information"
+    assert first["missing_information"]
+    assert "__interrupt__" not in first
+
+    second_nodes: list[str] = []
+    second = workflow.start(
+        "Use Enlist One on 40 acres on August 2, 2026.",
+        thread_id,
+        on_node=second_nodes.append,
+    )
+
+    assert second_nodes == [
+        "intake",
+        "gather_context",
+        "retrieve",
+        "specialist",
+        "rules",
+        "critic",
+    ]
+    assert second.get("__interrupt__")
+    assert second["request"].proposed_product == "Enlist One"
+
+    # The follow-up turn still carries the earlier conversation.
+    conversation = chains[IntakeDecision].inputs[1]["conversation"]
+    assert "Field F-02 has weeds." in conversation
+    assert "Use Enlist One on 40 acres" in conversation
+
+    # And the thread remains resumable through to a work order.
+    resumed = workflow.resume_human_review("approved", thread_id)
+    assert resumed["final_status"] == "simulated_work_order_created"
