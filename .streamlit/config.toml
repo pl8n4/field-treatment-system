@@ -1,0 +1,43 @@
+[server]
+# Streamlit's source watcher calls get_module_paths() on every module in
+# sys.modules. That touches transformers.__path__, whose lazy loader really
+# imports a zoedepth image processor that needs torchvision — which
+# sentence-transformers does not pull in — so every rerun logs a traceback.
+# "none" is the only setting that skips the walk: it is what decides whether a
+# LocalSourcesWatcher is built at all. The cost is no auto-rerun on save; edit
+# the app, then restart it.
+fileWatcherType = "none"
+
+# The palette is a muted field green on warm neutrals: this is a compliance
+# review tool, so colour is reserved for meaning. Green, orange, and red are
+# left near their Streamlit defaults because rule severities and critic
+# verdicts are rendered with them and must stay legible as signals.
+[theme]
+base = "light"
+font = "sans-serif"
+baseRadius = "medium"
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#2F6B45"
+backgroundColor = "#FCFCFA"
+secondaryBackgroundColor = "#F1F3EE"
+textColor = "#16211A"
+borderColor = "#DDE2D8"
+linkColor = "#2F6B45"
+
+[theme.light.sidebar]
+backgroundColor = "#F1F3EE"
+borderColor = "#DDE2D8"
+
+[theme.dark]
+primaryColor = "#6FBF8B"
+backgroundColor = "#111512"
+secondaryBackgroundColor = "#1B211C"
+textColor = "#E8EDE7"
+borderColor = "#2C332C"
+linkColor = "#8FD3A6"
+
+[theme.dark.sidebar]
+backgroundColor = "#1B211C"
+borderColor = "#2C332C"
